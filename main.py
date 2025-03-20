@@ -276,15 +276,23 @@ def main():
 def test():
     from fast_alpr.default_ocr import DefaultOCR
 
-    im = cv2.imread('test.jpg')
+    im = cv2.imread('test1.jpg')
 
     # fast_alpr_ocr = DefaultOCR('global-plates-mobile-vit-v2-model')
     # res = fast_alpr_ocr.predict(im)
     # print(res)
 
-    res = license_plate_ocr.predict([im,im])
-    print(res)    
+    # res = license_plate_ocr.predict([im])
+    # print(res)
+
+    # boxes, scores, classes = container_info_detector.predict([im])[0]
+    # for bb in boxes:
+    #     xmin, ymin, xmax, ymax = bb
+    #     crop = im[ymin:ymax, xmin:xmax]
+    # cv2.imwrite('test1.jpg', crop) 
+
+
 
 if __name__ == "__main__":
-    main()
-    # test()
+    # main()
+    test()
