@@ -1,0 +1,14 @@
+http: # config for service
+    HTTP_PORT: ${AIHN_HTTP_PORT}
+
+grpc: # config for grpc
+    GRPC_PORT: ${AIHN_GRPC_PORT}
+    MAX_WORKERS: ${AIHN_MAX_WORKERS}
+    MAX_MESSAGE_LENGTH: ${AIHN_MAX_MESSAGE_LENGTH}
+    DEBUG_MODE: ${AIHN_DEBUG_MODE} # mặc định để là 0 khi deploy
+
+inference_server: # config of triton server
+    ip: ${AIHN_MODELS_HOST}    # ip of triton server
+    port: ${AIHN_MODELS_PORT}  # port of triton server, common config of grpc port is 8001
+    MAX_RETRY: ${AIHN_MAX_RETRY}
+    SSL_ENABLE: ${AIHN_SSL_ENABLE}

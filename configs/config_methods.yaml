@@ -1,0 +1,5 @@
+use_methods:
+    ScoringTH: true
+    ProductAnomaly: true
+    DocumentFraud: true
+    OCRYMH: true
