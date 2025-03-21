@@ -200,6 +200,23 @@ def xyxy2xywh(xyxy):
     return [cx, cy, w, h]
 
 
+def xywh2xyxy(xywh):
+    cx, cy, w, h = xywh
+    l = cx - w // 2
+    t = cy - h // 2
+    r = cx + w // 2
+    b = cy + h // 2
+    return [l, t, r, b]
+
+
+def ltwh2xyxy(ltwh):
+    x1, y1, w, h = ltwh
+    x2 = x1 + w
+    y2 = y1 + h
+    return [x1, y1, x2, y2]
+
+
+
 def xywh2ltwh(x):
     """
     Convert the bounding box format from [x, y, w, h] to [x1, y1, w, h], where x1, y1 are the top-left coordinates.
@@ -214,7 +231,6 @@ def xywh2ltwh(x):
     y[..., 0] = x[..., 0] - x[..., 2] / 2  # top left x
     y[..., 1] = x[..., 1] - x[..., 3] / 2  # top left y
     return y
-
 
 
 def compute_image_blurriness(im):

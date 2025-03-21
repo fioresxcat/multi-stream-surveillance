@@ -1,0 +1,2 @@
+CONTAINER DETECTION RESULTS
+Container 1: start_time: 3.44, info: {'owner_code': ('DRYU', 0.9961865), 'container_number': ('200321', 0.90382403), 'check_digit': ('5', 0.9812367), 'container_type': ('22G1', 0.92441297), 'rear_license_plate': ('50R04002', 0.92425656), 'front_license_plate': ('51D37319', 0.61771995)}

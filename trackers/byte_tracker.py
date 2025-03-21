@@ -4,7 +4,7 @@ import numpy as np
 import pdb
 import logging
 
-from utils.utils import xywh2ltwh, total_time
+from utils.utils import xywh2ltwh, total_time, xywh2xyxy, ltwh2xyxy
 from .base import BaseTrack, TrackState
 from .utils import matching
 from .utils.kalman_filter import KalmanFilterXYAH
@@ -61,6 +61,10 @@ class STrack(BaseTrack):
         self.cls = cls
         self.idx = xywh[-1]
         self.angle = xywh[4] if len(xywh) == 6 else None
+
+        last_xyxy = xywh2xyxy(xywh[:4])
+        self.bb_history = [last_xyxy]
+        
 
     def predict(self):
         """Predicts mean and covariance using Kalman filter."""
@@ -154,6 +158,10 @@ class STrack(BaseTrack):
         self.cls = new_track.cls
         self.angle = new_track.angle
         self.idx = new_track.idx
+
+        last_xyxy = ltwh2xyxy(new_tlwh)
+        self.bb_history.append(last_xyxy)
+
 
     def convert_coords(self, tlwh):
         """Convert a bounding box's top-left-width-height format to its x-y-aspect-height equivalent."""
@@ -255,8 +263,6 @@ class BYTETracker:
 
         self.logger = logging.getLogger('time')
 
-    @profile
-    # @total_time
     def update(self, results, img=None):
         """Updates object tracker with new detections and returns tracked object bounding boxes."""
         self.frame_id += 1
