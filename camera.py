@@ -56,6 +56,7 @@ class CameraProcessor:
         self.is_running = False
         self.blur_threshold = 1
         self.frame_cnt = 0
+        self.max_time_lost = 2 # seconds
 
 
     def is_container_valid(self, bbox, container_info):
@@ -117,8 +118,8 @@ class CameraProcessor:
         while self.is_running:
             frame_info = self.frame_queue.get(block=True)
             self.frame_cnt += 1
+            print(f'------- CAMERA {self.cam_id} - FRAME {self.frame_cnt} - TIME {self.current_time}')  
             s = time.perf_counter()
-            # self.print(f'Processing frame {frame_cnt}...')
             
             timestamp, frame = frame_info['timestamp'], frame_info['frame']
             boxes, scores, cl_names = self.container_detector.predict([frame])[0]
@@ -144,7 +145,7 @@ class CameraProcessor:
 
                     # update container_info in database
                     if obj_id not in self.database:
-                        container_info = ContainerInfo(self.cam_id, obj_id, (self.im_w, self.im_h))
+                        container_info = ContainerInfo(self.cam_id, obj_id, self.fps, (self.im_w, self.im_h))
                         container_info.start_time = timestamp
                         container_info.update_history(timestamp, bbox)
                         self.database[obj_id] = container_info
@@ -156,16 +157,36 @@ class CameraProcessor:
                     if self.is_container_valid(bbox, container_info) and not container_info.is_full:
                         container_im = frame[bbox[1]:bbox[3], bbox[0]:bbox[2]]
                         incomplete_labels = container_info.get_incomplete_labels()
+                        print('label 2 extract: ', incomplete_labels)
                         extracted_info = self.extract_container_info(container_im, extract_labels=incomplete_labels)
-                        container_info.update_info(extracted_info)
+                        if self.cam_id == 'htt':
+                            print('direction: ', container_info.direction)
+                            print(f'front LP: ', extracted_info.get('front_license_plate', None))
+                    else:
+                        extracted_info = {}
+                    container_info.update_info(extracted_info)
                     
                     if container_info.is_full and not container_info.pushed_to_queue:
-                        self.result_queue.append({
-                            'start_time': container_info.start_time,
-                            'info': container_info.info,
-                            'is_done': False
-                        })
-                        container_info.pushed_to_queue = True
+                        # check if the last valid container is pushed or not
+                        will_push = True
+                        keys = list(self.database.keys())
+                        index = keys.index(obj_id)
+                        for i in range(index-1, -1, -1):
+                            prev_container_info = self.database[keys[i]]
+                            if prev_container_info.is_valid_container and not prev_container_info.pushed_to_queue:
+                                will_push = False
+                                break
+                        if will_push:
+                            self.result_queue.append({
+                                'type': 'rear_info' if container_info.direction == 'out' else 'front_info',
+                                'start_time': container_info.start_time,
+                                'push_time': self.current_time,
+                                'info': container_info.info,
+                                'is_done': False
+                            })
+                            container_info.pushed_to_queue = True
+                            with open(f'logs/{self.cam_id}_queue.txt', 'a') as f:
+                                f.write(f'time: {time.time()} - {self.result_queue[-1]}\n')
             else:
                 # theo dung logic la can phai update tracker de update frame_id chu nhi
                 # nhung yolo11 cung ko lam the ma chi track khi detect duoc object
@@ -179,15 +200,29 @@ class CameraProcessor:
             for id, container_info in list(self.database.items()):
                 if id in tracked_ids:
                     continue
-                # non tracked containers
+                # update info
+                container_info.update_info({})
+                # check to remove non tracked containers
                 container_info.time_since_update += 1
-                if container_info.time_since_update > 25:
+                if container_info.time_since_update > self.max_time_lost * self.fps:
+                    if container_info.is_valid_container and not container_info.pushed_to_queue:
+                        result = {
+                            'type': 'rear_info' if container_info.direction == 'out' else 'front_info',
+                            'start_time': container_info.start_time,
+                            'push_time': self.current_time,
+                            'info': container_info.info,
+                            'is_done': False
+                        }
+                        self.result_queue.append(result)
+                        with open(f'logs/{self.cam_id}_queue.txt', 'a') as f:
+                            f.write(f'time: {time.time()} - {self.result_queue[-1]}\n')
                     self.database.pop(id)
 
             # print(f'------- FRAME {self.frame_cnt} - TIME {self.current_time} - {self.cam_id.upper()} DATABASE -------')  
             # for container_id, container_info in self.database.items():
             #     print(f'CONTAINER {container_id}: {container_info}')
             # print()
+
 
             # print(f'{self.cam_id} time elapsed: {time.perf_counter() - s:.2f}s')
 

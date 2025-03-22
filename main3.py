@@ -70,50 +70,84 @@ class ContainerProcessor:
                     continue
                 frame_index = cap.get(cv2.CAP_PROP_POS_FRAMES)
                 timestamp = round(cap.get(cv2.CAP_PROP_POS_MSEC) / 1000.0, 2)  # Convert to seconds
-                self.frame_queues[cam_id].put({'timestamp': timestamp, 'frame': frame, 'frame_index': frame_index})
+                self.frame_queues[cam_id].put({'timestamp': timestamp, 'frame': frame, 'frame_index': frame_index}, block=True)  # notice this
 
+            if all(is_stopped.values()):
+                print("All cameras stopped. Exiting...")
+                break
 
 
     def match_results(self):
+        def combine_info(info1, info2):
+            info = {}
+            for label, (value1, score1) in info1.items():
+                if label not in info:
+                    info[label] = (value1, score1)
+                else:
+                    if score1 > info[label][1]:
+                        info[label] = (value1, score1)
+            for label, (value2, score2) in info2.items():
+                if label not in info:
+                    info[label] = (value2, score2)
+                else:
+                    if score2 > info[label][1]:
+                        info[label] = (value2, score2)
+            return info
+        
+
         res_queue_1 = self.results_queues[self.cam1]
         res_queue_2 = self.results_queues[self.cam2]
         container_cnt = 0
         while self.is_running:
             time.sleep(0.1)
             
-            # print('------------ RESULTS QUEUE ------------')
-            # print(f'{self.cam1.upper()}: {list(res_queue_1)}')
-            # print(f'{self.cam2.upper()}: {list(res_queue_2)}')
-            # print()
+            print('------------ RESULTS QUEUE ------------')
+            print(f'{self.cam1.upper()}: {list(res_queue_1)}')
+            print(f'{self.cam2.upper()}: {list(res_queue_2)}')
+            print()
 
             if len(res_queue_1) == 0 or len(res_queue_2) == 0:
                 continue
+            # pdb.set_trace()
             
             res1 = res_queue_1.popleft()
             res2 = res_queue_2.popleft()
+            time1, type1, info1 = res1['start_time'], res1['type'], res1['info']
+            time2, type2, info2 = res2['start_time'], res2['type'], res2['info']
+            info = None
 
-            if abs(res1['start_time'] - res2['start_time']) < self.max_time_diff: # Match found
-                info = {}
-                for label, (value, score) in res1['info'].items():
-                    if label not in info:
-                        info[label] = (value, score)
-                    else:
-                        if score > info[label][1]:
-                            info[label] = (value, score)
-                for label, (value, score) in res2['info'].items():
-                    if label not in info:
-                        info[label] = (value, score)
-                    else:
-                        if score > info[label][1]:
-                            info[label] = (value, score)
-                self.final_results.append(info)
-                print(f'Find a container: {info}')
+            # if type1 == 'front_info' and type2 == 'rear_info':
+            #     if time1 < time2:  # front_info arrives before rear_info, valid combination
+            #         info = combine_info(info1, info2)
+            #     else:  # front_info arrives behind rear_info
+            #         res_queue_1.appendleft(res1)  # reappend front_info and only pop out rear_info for old container
+            #         info = info2
+            # elif type1 == 'rear_info' and type2 == 'front_info':
+            #     if time2 < time1: # front_info arrives before rear_info, valid combination
+            #         info = combine_info(info1, info2)
+            #     else:  # front_info arrives behind rear_info
+            #         res_queue_2.appendleft(res2)  # reappend front_info and only pop out rear_info for old container
+            #         info = info1
 
+            if type1 != type2:
+                info = combine_info(info1, info2)
+            elif type1 == type2:
+                # pop cái đến trước và giữ lại cái đến sau
+                if time1 < time2:
+                    res_queue_2.appendleft(res2)
+                    info = info1
+                else:
+                    res_queue_1.appendleft(res1)
+                    info = info2
+                    
+
+            if info is not None:
                 # write result
                 start_time = res1['start_time']
                 container_cnt += 1
                 with open(self.output_path, 'a') as f:
-                    f.write(f'Container {container_cnt}: start_time: {start_time}, info: {info}\n')
+                    f.write(f'time: {time.time()} Container {container_cnt}: start_time: {start_time}, info: {info}\n')
+                # pdb.set_trace()
 
 
     def stop(self):
@@ -148,8 +182,8 @@ class ContainerProcessor:
 def main():
     fps = 25
     video_sources = {
-        'htt': 'test_files/hongtraitruoc-part2_cut1-duplicate.mp4',
-        'hts': 'test_files/hongtraisau-part2_cut1-duplicate.mp4',
+        'htt': 'test_files/hongtraitruoc-cut7.mp4',
+        'hts': 'test_files/hongtraisau-cut7.mp4',
         # 'bst': 'test_files/biensotruoc-part2.mkv',
         # 'bss': 'test_files/biensosau-part2.mkv',
         # 'htt': 'test_files/hongtraitruoc-part2.mp4',

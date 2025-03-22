@@ -1,14 +1,24 @@
 import cv2
 import numpy as np
 import time
-from ultralytics import YOLO
+import pdb
+
 
 
 def nothing():
-    im = cv2.imread('IMG_20250321_134050-crop.jpg')
-    print(im.shape)
-    im = cv2.resize(im, (1200, 1800))
-    cv2.imwrite('test.jpg', im)
+    cap = cv2.VideoCapture('rtsp://admin:Abcd7890!@noccongtruoc.cameraddns.net:8556/Streaming/Channels/101')
+    if not cap.isOpened():
+        print("Failed to open the RTSP stream.")
+    else:
+        print("RTSP stream opened successfully.")
+
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+        print(frame.shape)
+        cv2.imwrite('test.jpg', frame)
+        pdb.set_trace()
 
 
 if __name__ == '__main__':
