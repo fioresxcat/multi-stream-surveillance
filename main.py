@@ -12,6 +12,7 @@ from collections import deque
 from typing_extensions import List, Dict, Tuple, Optional, Literal, Any
 from utils.utils import load_yaml
 from camera import *
+from defect_procesor import DefectProcessor
 
 
 config_env = load_yaml('configs/config_env.yaml')['inference_server']
@@ -22,29 +23,43 @@ container_detected_event = threading.Event()
 
 class ContainerProcessor:
     def __init__(self, video_sources: dict, fps: int):
+        self.cam1, self.cam2 = 'htt', 'hts'
+        self.defect_cams = ['nct']
+
         # setup capture
         self.caps = {cam_id: cv2.VideoCapture(cam_source) for cam_id, cam_source in video_sources.items()}
         self.frame_sizes = {cam_id: (int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))) for cam_id, cap in self.caps.items()}
         # setup frames queue
         self.frame_queues = {cam_id: Queue(maxsize=10) for cam_id in video_sources.keys()}
         # setup results queue
-        self.results_queues = {cam_id: deque() for cam_id in video_sources.keys()}
-        # setup processor
+        self.info_results_queues = {cam_id: deque() for cam_id in [self.cam1, self.cam2]}
+        self.defect_results_queue = deque()
+        # setup info processor
         self.camera_processors = {}
         for cam_id, cam_source in video_sources.items():
+            if cam_id not in [self.cam1, self.cam2]:
+                continue
             if cam_id == 'htt':
                 camera_class = HTTCameraProcessor
             elif cam_id == 'hts':
                 camera_class = HTSCameraProcessor
             else:
                 raise NotImplementedError(f'Camera {cam_id} is not supported yet')
-            
-            self.camera_processors[cam_id] = camera_class(cam_id, fps, self.frame_sizes[cam_id], self.frame_queues[cam_id], self.results_queues[cam_id], container_detected_event, config_env, config_model)
+            self.camera_processors[cam_id] = camera_class(cam_id, fps, self.frame_sizes[cam_id], self.frame_queues[cam_id], self.info_results_queues[cam_id], container_detected_event, config_env, config_model)
+        # setup defect processor
+        self.defect_processor = DefectProcessor(
+            frame_queues={cam_id: self.frame_queues[cam_id] for cam_id in self.defect_cams},
+            frame_sizes={cam_id: self.frame_sizes[cam_id] for cam_id in self.defect_cams},
+            result_queue=self.defect_results_queue,
+            fps=fps,
+            container_detected_event=container_detected_event,
+            config_env=config_env,
+            config_model=config_model,
+        )
 
         self.is_running = False
         self.fps = fps
         self.final_results = []
-        self.cam1, self.cam2 = 'htt', 'hts'
         # self.max_time_diff = int(3 * self.fps)  # 3 seconds
         self.max_time_diff = 1e9
         self.output_path = 'logs/results.log'
@@ -95,16 +110,16 @@ class ContainerProcessor:
             return info
         
 
-        res_queue_1 = self.results_queues[self.cam1]
-        res_queue_2 = self.results_queues[self.cam2]
+        res_queue_1 = self.info_results_queues[self.cam1]
+        res_queue_2 = self.info_results_queues[self.cam2]
         container_cnt = 0
         while self.is_running:
             time.sleep(0.1)
             
-            print('------------ RESULTS QUEUE ------------')
-            print(f'{self.cam1.upper()}: {list(res_queue_1)}')
-            print(f'{self.cam2.upper()}: {list(res_queue_2)}')
-            print()
+            # print('------------ RESULTS QUEUE ------------')
+            # print(f'{self.cam1.upper()}: {list(res_queue_1)}')
+            # print(f'{self.cam2.upper()}: {list(res_queue_2)}')
+            # print()
 
             if len(res_queue_1) == 0 or len(res_queue_2) == 0:
                 continue
@@ -156,12 +171,14 @@ class ContainerProcessor:
             cap.release()
 
 
-    def process(self):
+    def run(self):
         self.is_running = True
         get_frame_thread = threading.Thread(target=self.get_frames, daemon=True)
         processing_threads = []
         for cam_id, processor in self.camera_processors.items():
             processing_threads.append(threading.Thread(target=processor.run, daemon=True))
+        # defect_thread = threading.Thread(target=self.defect_processor.run, daemon=True)
+        # processing_threads.append(defect_thread)
         matching_thread = threading.Thread(target=self.match_results, daemon=True)
         
         # Start threads
@@ -182,15 +199,16 @@ class ContainerProcessor:
 def main():
     fps = 25
     video_sources = {
-        'htt': 'test_files/hongtraitruoc-cut7.mp4',
-        'hts': 'test_files/hongtraisau-cut7.mp4',
+        'htt': 'test_files/hongtraitruoc-cut6.mp4',
+        'hts': 'test_files/hongtraisau-cut6.mp4',
+        'nct': 'test_files/noccongtruoc-cut6.mp4'
         # 'bst': 'test_files/biensotruoc-part2.mkv',
         # 'bss': 'test_files/biensosau-part2.mkv',
         # 'htt': 'test_files/hongtraitruoc-part2.mp4',
         # 'hts': 'test_files/hongtraisau-part2.mp4',
     }
     processor = ContainerProcessor(video_sources, fps)
-    processor.process()
+    processor.run()
     processor.stop()
 
 

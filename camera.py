@@ -118,7 +118,7 @@ class CameraProcessor:
         while self.is_running:
             frame_info = self.frame_queue.get(block=True)
             self.frame_cnt += 1
-            print(f'------- CAMERA {self.cam_id} - FRAME {self.frame_cnt} - TIME {self.current_time}')  
+            print(f'------- CAMERA {self.cam_id} - FRAME {self.frame_cnt} - TIME {self.current_time} ---------')
             s = time.perf_counter()
             
             timestamp, frame = frame_info['timestamp'], frame_info['frame']
@@ -165,6 +165,11 @@ class CameraProcessor:
                     else:
                         extracted_info = {}
                     container_info.update_info(extracted_info)
+
+                    # set event
+                    # if container_info.direction is not None and not self.container_detected_event.is_set():
+                    #     print(f'container detected from {self.cam_id}!')
+                    #     self.container_detected_event.set()
                     
                     if container_info.is_full and not container_info.pushed_to_queue:
                         # check if the last valid container is pushed or not
@@ -197,9 +202,10 @@ class CameraProcessor:
                 pass
 
             # remove linhtinh tracks
-            for id, container_info in list(self.database.items()):
+            for id in list(self.database.keys()):
                 if id in tracked_ids:
                     continue
+                container_info = self.database[id]
                 # update info
                 container_info.update_info({})
                 # check to remove non tracked containers
@@ -217,6 +223,10 @@ class CameraProcessor:
                         with open(f'logs/{self.cam_id}_queue.txt', 'a') as f:
                             f.write(f'time: {time.time()} - {self.result_queue[-1]}\n')
                     self.database.pop(id)
+            
+            # # clear event if no container detected
+            # if len(list(self.database.keys())) == 0:
+            #     self.container_detected_event.clear()
 
             # print(f'------- FRAME {self.frame_cnt} - TIME {self.current_time} - {self.cam_id.upper()} DATABASE -------')  
             # for container_id, container_info in self.database.items():

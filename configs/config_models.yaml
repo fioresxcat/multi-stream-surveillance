@@ -23,6 +23,18 @@ container_info_detection:
     request_timeout: 60.0
 
 
+container_defect_detection:
+    model_spec_name: GLS_container_defect_detection
+    input_shape: [640, 640, 3]
+    input_name: images
+    input_type: FP32
+    max_batch_size: 1
+    output_name: output0
+    iou_threshold: 0.5
+    conf_threshold: 0.3
+    request_timeout: 60.0
+
+
 license_plate_ocr:
   model_spec_name: general_lp_ocr
   input_shape: [70, 140, 1]
