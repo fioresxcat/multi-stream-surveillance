@@ -1,3 +1,1 @@
 CONTAINER DETECTION RESULTS
-time: 1742642155.597175 Container 1: start_time: 0.0, info: {'owner_code': ('GAOU', 0.99246705), 'container_number': ('645743', 0.9981413), 'check_digit': ('8', 0.9871451), 'container_type': ('45G1', 0.9893274), 'rear_license_plate': ('51R06914', 0.94718707), 'front_license_plate': (None, 0)}
-time: 1742642174.2272763 Container 2: start_time: 0.0, info: {'owner_code': ('TCLU', 0.98162436), 'container_number': ('199995', 0.9986203), 'check_digit': ('8', 0.98859113), 'container_type': ('22G1', 0.982275), 'rear_license_plate': ('50R0002', 0.93010026), 'front_license_plate': ('51D37919', 0.9444104)}

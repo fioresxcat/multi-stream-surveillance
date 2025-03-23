@@ -182,8 +182,9 @@ class ContainerProcessor:
 def main():
     fps = 25
     video_sources = {
-        'htt': 'test_files/hongtraitruoc-cut7.mp4',
-        'hts': 'test_files/hongtraisau-cut7.mp4',
+        'htt': 'test_files/hongtraitruoc-cut6.mp4',
+        'hts': 'test_files/hongtraisau-cut6.mp4',
+        # 'nct': 'test_files/noccongtruoc-cut6.mp4',
         # 'bst': 'test_files/biensotruoc-part2.mkv',
         # 'bss': 'test_files/biensosau-part2.mkv',
         # 'htt': 'test_files/hongtraitruoc-part2.mp4',
