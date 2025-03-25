@@ -116,9 +116,12 @@ class CameraProcessor:
     def run(self):
         self.is_running = True
         while self.is_running:
-            frame_info = self.frame_queue.get(block=True)
+            try:
+                frame_info = self.frame_queue.get(block=True, timeout=0.5)
+            except Exception as e:
+                continue
             self.frame_cnt += 1
-            print(f'------- CAMERA {self.cam_id} - FRAME {self.frame_cnt} - TIME {self.current_time} ---------')
+            # print(f'------- CAMERA {self.cam_id} - FRAME {self.frame_cnt} - TIME {self.current_time} ---------')
             s = time.perf_counter()
             
             timestamp, frame = frame_info['timestamp'], frame_info['frame']
@@ -157,19 +160,15 @@ class CameraProcessor:
                     if self.is_container_valid(bbox, container_info) and not container_info.is_full:
                         container_im = frame[bbox[1]:bbox[3], bbox[0]:bbox[2]]
                         incomplete_labels = container_info.get_incomplete_labels()
-                        print('label 2 extract: ', incomplete_labels)
                         extracted_info = self.extract_container_info(container_im, extract_labels=incomplete_labels)
-                        if self.cam_id == 'htt':
-                            print('direction: ', container_info.direction)
-                            print(f'front LP: ', extracted_info.get('front_license_plate', None))
                     else:
                         extracted_info = {}
                     container_info.update_info(extracted_info)
 
                     # set event
-                    # if container_info.direction is not None and not self.container_detected_event.is_set():
-                    #     print(f'container detected from {self.cam_id}!')
-                    #     self.container_detected_event.set()
+                    if container_info.direction is not None and not self.container_detected_event[self.cam_id].is_set():
+                        # print(f'container detected from {self.cam_id}!')
+                        self.container_detected_event[self.cam_id].set()
                     
                     if container_info.is_full and not container_info.pushed_to_queue:
                         # check if the last valid container is pushed or not
@@ -224,15 +223,15 @@ class CameraProcessor:
                             f.write(f'time: {time.time()} - {self.result_queue[-1]}\n')
                     self.database.pop(id)
             
-            # # clear event if no container detected
-            # if len(list(self.database.keys())) == 0:
-            #     self.container_detected_event.clear()
+            # clear event if no container detected
+            if len(list(self.database.keys())) == 0 and self.container_detected_event[self.cam_id].is_set():
+                print(f'{self.cam_id}: clear container detected event because nothing in database')
+                self.container_detected_event[self.cam_id].clear()
 
-            # print(f'------- FRAME {self.frame_cnt} - TIME {self.current_time} - {self.cam_id.upper()} DATABASE -------')  
-            # for container_id, container_info in self.database.items():
-            #     print(f'CONTAINER {container_id}: {container_info}')
-            # print()
-
+            print(f'------- FRAME {self.frame_cnt} - TIME {timestamp} - {self.cam_id.upper()} DATABASE -------')  
+            for container_id, container_info in self.database.items():
+                print(f'CONTAINER {container_id}: {container_info}')
+            print()
 
             # print(f'{self.cam_id} time elapsed: {time.perf_counter() - s:.2f}s')
 

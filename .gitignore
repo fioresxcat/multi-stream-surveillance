@@ -2,3 +2,6 @@ test*
 temp*
 untitled*
 *.lprof
+*pycache*
+methods/*pycache*
+logs*
