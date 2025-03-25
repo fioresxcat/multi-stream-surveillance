@@ -6,6 +6,7 @@ import pdb
 import threading
 from line_profiler import profile
 from queue import Queue
+from typing_extensions import List, Dict, Tuple, Union, Any, Literal
 from collections import deque
 from trackers import BYTETracker, BOTSORT
 from easydict import EasyDict
@@ -34,9 +35,9 @@ TRACKER_ARGS = EasyDict({
 
 
 
-class CameraProcessor:
+class InfoCameraProcessor:
     def __init__(self, cam_id, fps, frame_size: tuple, 
-                 frame_queue: Queue, result_queue: deque, container_detected_event: threading.Event, 
+                 frame_queue: Queue, result_queue: deque, container_detected_event: Dict, 
                  config_env: dict, config_model: dict):
         self.cam_id = cam_id
         self.fps = fps
@@ -59,7 +60,7 @@ class CameraProcessor:
         self.max_time_lost = 2 # seconds
 
 
-    def is_container_valid(self, bbox, container_info):
+    def is_bbox_valid(self, bbox, container_info):
         raise NotImplementedError("is_container_valid method should be implemented for each specific camera")
     
 
@@ -112,8 +113,7 @@ class CameraProcessor:
         return self.frame_cnt / self.fps
     
 
-    @profile
-    def run(self):
+    def process(self):
         self.is_running = True
         while self.is_running:
             try:
@@ -157,7 +157,7 @@ class CameraProcessor:
                         container_info.update_history(timestamp, bbox)
 
                     # if valid, extract info
-                    if self.is_container_valid(bbox, container_info) and not container_info.is_full:
+                    if self.is_bbox_valid(bbox, container_info) and not container_info.is_done:
                         container_im = frame[bbox[1]:bbox[3], bbox[0]:bbox[2]]
                         incomplete_labels = container_info.get_incomplete_labels()
                         extracted_info = self.extract_container_info(container_im, extract_labels=incomplete_labels)
@@ -167,10 +167,9 @@ class CameraProcessor:
 
                     # set event
                     if container_info.direction is not None and not self.container_detected_event[self.cam_id].is_set():
-                        # print(f'container detected from {self.cam_id}!')
                         self.container_detected_event[self.cam_id].set()
                     
-                    if container_info.is_full and not container_info.pushed_to_queue:
+                    if container_info.is_done and not container_info.pushed_to_queue:
                         # check if the last valid container is pushed or not
                         will_push = True
                         keys = list(self.database.keys())
@@ -186,7 +185,7 @@ class CameraProcessor:
                                 'start_time': container_info.start_time,
                                 'push_time': self.current_time,
                                 'info': container_info.info,
-                                'is_done': False
+                                'is_matched': False
                             })
                             container_info.pushed_to_queue = True
                             with open(f'logs/{self.cam_id}_queue.txt', 'a') as f:
@@ -216,7 +215,7 @@ class CameraProcessor:
                             'start_time': container_info.start_time,
                             'push_time': self.current_time,
                             'info': container_info.info,
-                            'is_done': False
+                            'is_matched': False
                         }
                         self.result_queue.append(result)
                         with open(f'logs/{self.cam_id}_queue.txt', 'a') as f:
@@ -228,7 +227,7 @@ class CameraProcessor:
                 print(f'{self.cam_id}: clear container detected event because nothing in database')
                 self.container_detected_event[self.cam_id].clear()
 
-            print(f'------- FRAME {self.frame_cnt} - TIME {timestamp} - {self.cam_id.upper()} DATABASE -------')  
+            print(f'------- FRAME {self.frame_cnt} - TIME {timestamp} - CONTAINER DETECTED: {self.container_detected_event[self.cam_id].is_set()} - {self.cam_id.upper()} DATABASE -------')  
             for container_id, container_info in self.database.items():
                 print(f'CONTAINER {container_id}: {container_info}')
             print()
@@ -236,9 +235,12 @@ class CameraProcessor:
             # print(f'{self.cam_id} time elapsed: {time.perf_counter() - s:.2f}s')
 
 
+    def run(self):
+        self.process()
 
-class HTTCameraProcessor(CameraProcessor):
-    def is_container_valid(self, bbox, container_info):
+        
+class HTTCameraProcessor(InfoCameraProcessor):
+    def is_bbox_valid(self, bbox, container_info):
         direction = container_info.direction
         if direction is None:
             return False
@@ -251,8 +253,8 @@ class HTTCameraProcessor(CameraProcessor):
             return cx < self.im_w // 2
         
 
-class HTSCameraProcessor(CameraProcessor):
-    def is_container_valid(self, bbox, container_info):
+class HTSCameraProcessor(InfoCameraProcessor):
+    def is_bbox_valid(self, bbox, container_info):
         direction = container_info.direction
         if direction is None:
             return False
