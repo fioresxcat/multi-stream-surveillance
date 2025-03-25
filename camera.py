@@ -118,7 +118,7 @@ class CameraProcessor:
         while self.is_running:
             frame_info = self.frame_queue.get(block=True)
             self.frame_cnt += 1
-            print(f'------- CAMERA {self.cam_id} - FRAME {self.frame_cnt} - TIME {self.current_time}')  
+            # print(f'------- CAMERA {self.cam_id} - FRAME {self.frame_cnt} - TIME {self.current_time}')  
             s = time.perf_counter()
             
             timestamp, frame = frame_info['timestamp'], frame_info['frame']
@@ -218,10 +218,10 @@ class CameraProcessor:
                             f.write(f'time: {time.time()} - {self.result_queue[-1]}\n')
                     self.database.pop(id)
 
-            # print(f'------- FRAME {self.frame_cnt} - TIME {self.current_time} - {self.cam_id.upper()} DATABASE -------')  
-            # for container_id, container_info in self.database.items():
-            #     print(f'CONTAINER {container_id}: {container_info}')
-            # print()
+            print(f'------- FRAME {self.frame_cnt} - TIME {self.current_time} - {self.cam_id.upper()} DATABASE -------')  
+            for container_id, container_info in self.database.items():
+                print(f'CONTAINER {container_id}: {container_info}')
+            print()
 
 
             # print(f'{self.cam_id} time elapsed: {time.perf_counter() - s:.2f}s')

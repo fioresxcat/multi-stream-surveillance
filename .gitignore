@@ -47,3 +47,5 @@ test*
 temp*
 untitled*
 *.lprof
+logs*
+*__init__*
