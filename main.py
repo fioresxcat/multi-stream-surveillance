@@ -23,8 +23,7 @@ class ContainerProcessor:
     def __init__(self, video_sources: dict, fps: int):
         self.cam1, self.cam2 = 'htt', 'hts'
         self.ocr_cams = [self.cam1, self.cam2]
-        # self.defect_cams = ['hps']
-        self.defect_cams = []
+        self.defect_cams = ['hps']
         self.container_detected_event = {cam_id: threading.Event() for cam_id in video_sources.keys()}
 
         # setup capture
@@ -72,52 +71,79 @@ class ContainerProcessor:
             f.write('CONTAINER DETECTION RESULTS\n')
 
 
+    # def get_frames(self):
+    #     is_stopped = {cam_id: False for cam_id in self.caps.keys()}
+
+    #     # fourcc = cv2.VideoWriter_fourcc(*'XVID')
+    #     # out = cv2.VideoWriter('output.avi', fourcc, self.fps, (640, 480))
+
+    #     while self.is_running:
+    #         for cam_id, cap in self.caps.items():
+    #             cam_queue: Queue = self.frame_queues[cam_id]
+    #             if is_stopped[cam_id]:
+    #                 continue
+    #             if cam_queue.full():  # comment this to always get most recent frames
+    #                 continue
+    #             ret, frame = cap.read()
+    #             if not ret:
+    #                 print(f"Failed to read frame from {cam_id}")
+    #                 is_stopped[cam_id] = True
+    #                 continue
+    #             frame_index = cap.get(cv2.CAP_PROP_POS_FRAMES)
+    #             timestamp = round(cap.get(cv2.CAP_PROP_POS_MSEC) / 1000.0, 2)  # Convert to seconds
+    #             if timestamp < 15:  # start from second n
+    #                 continue
+    #             cam_queue.put({'timestamp': timestamp, 'frame': frame, 'frame_index': frame_index})  # notice this
+
+    #         if all(is_stopped.values()):
+    #             print("All cameras stopped. Exiting...")
+    #             break
+
+    
     def get_frames(self):
         is_stopped = {cam_id: False for cam_id in self.caps.keys()}
-
-        # fourcc = cv2.VideoWriter_fourcc(*'XVID')
-        # out = cv2.VideoWriter('output.avi', fourcc, self.fps, (640, 480))
-
         while self.is_running:
             for cam_id, cap in self.caps.items():
                 cam_queue: Queue = self.frame_queues[cam_id]
-                if is_stopped[cam_id]:
-                    continue
                 if cam_queue.full():  # comment this to always get most recent frames
                     continue
-                ret, frame = cap.read()
+                if is_stopped[cam_id]:
+                    ret, frame = True, np.full((self.frame_sizes[cam_id][1], self.frame_sizes[cam_id][0], 3), 255, dtype=np.uint8)
+                else:
+                    ret, frame = cap.read()
                 if not ret:
                     print(f"Failed to read frame from {cam_id}")
                     is_stopped[cam_id] = True
                     continue
                 frame_index = cap.get(cv2.CAP_PROP_POS_FRAMES)
                 timestamp = round(cap.get(cv2.CAP_PROP_POS_MSEC) / 1000.0, 2)  # Convert to seconds
-                if timestamp < 5:  # start from second n
-                    continue
+                # if timestamp < 15 and not is_stopped[cam_id]:  # start from second n
+                #     continue
                 cam_queue.put({'timestamp': timestamp, 'frame': frame, 'frame_index': frame_index})  # notice this
-
-            if all(is_stopped.values()):
-                print("All cameras stopped. Exiting...")
-                break
 
 
 
     def match_results(self):
-        def combine_info(ocr_infos: List, defect_infos: List):
+        def combine_info(ocr_results: List, defect_results: List):
             final_ocr_info = {}
-            for ocr_info in ocr_infos:
-                for label, (value, score) in ocr_info.items():
+            for ocr_result in ocr_results:
+                info = ocr_result['info']
+                for label, (value, score) in info.items():
                     if label not in final_ocr_info:
                         final_ocr_info[label] = (value, score)
                     else:
                         if score > final_ocr_info[label][1]:
                             final_ocr_info[label] = (value, score)
             
-            final_defect_info = []
-            for defect_info in defect_infos:
-                for im_index, im_result in enumerate(defect_info):
-                    final_defect_info.append(im_result)
+            final_defect_info = {}
+            for defect_result in defect_results:
+                info = defect_result['info']
+                cam_id = defect_result['camera_id']
+                final_defect_info[cam_id] = []
+                for im_index, im_result in enumerate(info):
+                    final_defect_info[cam_id].append(im_result['cl_names'])
 
+            # pdb.set_trace()
             info = {'ocr_info': final_ocr_info, 'defect_info': final_defect_info}
             return info
         
@@ -134,17 +160,19 @@ class ContainerProcessor:
             if any(len(queue) == 0 for queue in self.ocr_results_queues.values()) or any(len(queue) == 0 for queue in self.defect_results_queue.values()):
                 continue
             
-            ocr_infos = []
+            ocr_results = []
             for cam_id, ocr_queue in self.ocr_results_queues.items():
-                ocr_infos.append(ocr_queue.popleft())
-            defect_infos = []
+                res = ocr_queue.popleft()
+                ocr_results.append(res)
+            defect_results = []
             for cam_id, defect_queue in self.defect_results_queue.items():
-                defect_infos.append(defect_queue.popleft())
+                res = defect_queue.popleft()
+                defect_results.append(res)
 
-            info = combine_info(ocr_infos, defect_infos)
+            info = combine_info(ocr_results, defect_results)
 
             # write result
-            start_time = min(el['start_time'] for el in ocr_infos)
+            start_time = min(el['start_time'] for el in ocr_results)
             container_cnt += 1
             with open(self.output_path, 'a') as f:
                 f.write(f'time: {time.time()} Container {container_cnt}: start_time: {start_time}, info: {info}\n')
@@ -162,8 +190,8 @@ class ContainerProcessor:
         processing_threads = []
         for cam_id, processor in self.ocr_camera_processors.items():
             processing_threads.append(threading.Thread(target=processor.run, daemon=True))
-        # for cam_id, processor in self.defect_camera_processors.items():
-        #     processing_threads.append(threading.Thread(target=processor.run, daemon=True))
+        for cam_id, processor in self.defect_camera_processors.items():
+            processing_threads.append(threading.Thread(target=processor.run, daemon=True))
         matching_thread = threading.Thread(target=self.match_results, daemon=True)
         
         # Start threads
@@ -185,9 +213,9 @@ class ContainerProcessor:
 def main():
     fps = 25
     video_sources = {
-        'htt': 'test_files/hongtraitruoc-cut6.mp4',
-        'hts': 'test_files/hongtraisau-cut6.mp4',
-        'hps': 'test_files/hongphaisau-cut6.mp4'
+        'htt': 'test_files/hongtraitruoc-cut610_longer.mp4',
+        'hts': 'test_files/hongtraisau-cut610_longer.mp4',
+        'hps': 'test_files/hongphaisau-cut610_longer.mp4'
         # 'bst': 'test_files/biensotruoc-part2.mkv',
         # 'bss': 'test_files/biensosau-part2.mkv',
         # 'htt': 'test_files/hongtraitruoc-part2.mp4',

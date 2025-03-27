@@ -81,9 +81,9 @@ class DefectCameraProcessor:
     def process(self):
         self.is_running = True
         while self.is_running:
-            if not self.is_having_container() or self.frame_queue.empty():
-                time.sleep(0.1)
-                print(f'skip because having no container')
+            if (not self.is_having_container() or self.frame_queue.empty()) and len(self.database) == 0:
+                time.sleep(0.05)
+                # print(f'skip because having no container')
                 continue
             frame_info = self.frame_queue.get()
             timestamp, frame = frame_info['timestamp'], frame_info['frame']
@@ -118,13 +118,14 @@ class DefectCameraProcessor:
                         container_info.update_history(timestamp, bbox)
 
                     # check if this image is valid
-                    if not container_info.is_full and self.is_bbox_valid(bbox, container_info):
+                    if not container_info.is_full and self.is_bbox_valid(bbox, container_info) and timestamp >= 17:
                         container_im = frame[bbox[1]:bbox[3], bbox[0]:bbox[2]]
                         container_info.update_image(timestamp, container_im)
                     
                     # if full, extract defect info
                     if not container_info.is_done and container_info.is_full:
-                        defect_info = self.extract_defect_info(container_info.images)
+                        images = [im for timestamp, im in container_info.images]
+                        defect_info = self.extract_defect_info(images)
                         container_info.update_info(defect_info)
 
             else:
@@ -149,16 +150,18 @@ class DefectCameraProcessor:
                             will_push = False
                             break
                     if will_push:
-                        self.result_queue.append({
+                        result = {
                             'type': f'{self.cam_id}_defect_info',
+                            'camera_id': self.cam_id,
                             'start_time': container_info.start_time,
                             'push_time': timestamp,
                             'info': container_info.info,
                             'is_matched': False
-                        })
+                        }
+                        self.result_queue.append(result)
                         container_info.pushed_to_queue = True
                         with open(f'logs/{self.cam_id}_queue.txt', 'a') as f:
-                            f.write(f'time: {time.time()} - {self.result_queue[-1]}\n')
+                            f.write(f'time: {time.time()} - {result}\n')
 
                 else:  # non tracked ids
                     # check to remove non tracked containers
@@ -167,6 +170,7 @@ class DefectCameraProcessor:
                         if container_info.is_valid_container and not container_info.pushed_to_queue:
                             result = {
                                 'type': f'{self.cam_id}_defect_info',
+                                'camera_id': self.cam_id,
                                 'start_time': container_info.start_time,
                                 'push_time': timestamp,
                                 'info': container_info.info,
@@ -174,7 +178,7 @@ class DefectCameraProcessor:
                             }
                             self.result_queue.append(result)
                             with open(f'logs/{self.cam_id}_queue.txt', 'a') as f:
-                                f.write(f'time: {time.time()} - {self.result_queue[-1]}\n')
+                                f.write(f'time: {time.time()} - {result}\n')
                         self.database.pop(obj_id)
             
             print(f'------- FRAME {self.frame_cnt} - TIME {timestamp} - {self.cam_id.upper()} DATABASE -------')
@@ -183,9 +187,9 @@ class DefectCameraProcessor:
                 print_info = [el['cl_names'] for el in container_info.info]
                 is_full = 'FULL' if container_info.is_full else 'NOT FULL'
                 is_done = 'DONE' if container_info.is_done else 'NOT DONE'
-                print(f'CONTAINER {container_id}: direction: {container_info.moving_direction} {is_full} {is_done} {print_info}')
-                if container_info.is_full:
-                    pdb.set_trace()
+                print(f'CONTAINER {container_id}: appear: {container_info.num_appear}, direction: {container_info.moving_direction}, {is_full}, {is_done}, {print_info}')
+                # if container_info.is_full:
+                #     pdb.set_trace()
             print()
 
 

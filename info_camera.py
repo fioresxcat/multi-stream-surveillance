@@ -122,7 +122,6 @@ class InfoCameraProcessor:
                 continue
             self.frame_cnt += 1
             # print(f'------- CAMERA {self.cam_id} - FRAME {self.frame_cnt} - TIME {self.current_time} ---------')
-            s = time.perf_counter()
             
             timestamp, frame = frame_info['timestamp'], frame_info['frame']
             boxes, scores, cl_names = self.container_detector.predict([frame])[0]
@@ -180,16 +179,17 @@ class InfoCameraProcessor:
                                 will_push = False
                                 break
                         if will_push:
-                            self.result_queue.append({
+                            result = {
                                 'type': 'rear_info' if container_info.direction == 'out' else 'front_info',
                                 'start_time': container_info.start_time,
                                 'push_time': self.current_time,
                                 'info': container_info.info,
                                 'is_matched': False
-                            })
+                            }
+                            self.result_queue.append(result)
                             container_info.pushed_to_queue = True
                             with open(f'logs/{self.cam_id}_queue.txt', 'a') as f:
-                                f.write(f'time: {time.time()} - {self.result_queue[-1]}\n')
+                                f.write(f'time: {time.time()} - {result}\n')
             else:
                 # theo dung logic la can phai update tracker de update frame_id chu nhi
                 # nhung yolo11 cung ko lam the ma chi track khi detect duoc object
@@ -219,7 +219,9 @@ class InfoCameraProcessor:
                         }
                         self.result_queue.append(result)
                         with open(f'logs/{self.cam_id}_queue.txt', 'a') as f:
-                            f.write(f'time: {time.time()} - {self.result_queue[-1]}\n')
+                            f.write(f'time: {time.time()} - {result}\n')
+                    # if self.cam_id == 'htt':
+                    #     pdb.set_trace()
                     self.database.pop(id)
             
             # clear event if no container detected
@@ -227,10 +229,11 @@ class InfoCameraProcessor:
                 print(f'{self.cam_id}: clear container detected event because nothing in database')
                 self.container_detected_event[self.cam_id].clear()
 
-            print(f'------- FRAME {self.frame_cnt} - TIME {timestamp} - CONTAINER DETECTED: {self.container_detected_event[self.cam_id].is_set()} - {self.cam_id.upper()} DATABASE -------')  
-            for container_id, container_info in self.database.items():
-                print(f'CONTAINER {container_id}: {container_info}')
-            print()
+            # if self.cam_id == 'htt':
+            #     print(f'------- FRAME {self.frame_cnt} - TIME {timestamp} - CONTAINER DETECTED: {self.container_detected_event[self.cam_id].is_set()} - {self.cam_id.upper()} DATABASE -------')  
+            #     for container_id, container_info in self.database.items():
+            #         print(f'CONTAINER {container_id}: {container_info}')
+            #     print()
 
             # print(f'{self.cam_id} time elapsed: {time.perf_counter() - s:.2f}s')
 
