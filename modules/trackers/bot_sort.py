@@ -148,9 +148,9 @@ class BOTSORT(BYTETracker):
         The class is designed to work with the YOLOv8 object detection model and supports ReID only if enabled via args.
     """
 
-    def __init__(self, args, frame_rate=30):
+    def __init__(self, args, max_frame_lost: int):
         """Initialize YOLOv8 object with ReID module and GMC algorithm."""
-        super().__init__(args, frame_rate)
+        super().__init__(args, max_frame_lost)
         # ReID module
         self.proximity_thresh = args.proximity_thresh
         self.appearance_thresh = args.appearance_thresh

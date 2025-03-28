@@ -11,7 +11,7 @@ class DefectDetector(YOLODetector):
     
     def __init__(self, common_config, model_config):
         super(DefectDetector, self).__init__(common_config, model_config)
-        self.labels = ['container', 'scratch', 'rust', 'dent']
+        self.labels = ['trailer', 'scratch', 'rust', 'dent']
 
     
     @staticmethod

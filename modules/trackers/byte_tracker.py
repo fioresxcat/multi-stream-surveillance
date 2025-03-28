@@ -249,7 +249,7 @@ class BYTETracker:
         remove_duplicate_stracks(stracksa, stracksb): Removes duplicate stracks based on IoU.
     """
 
-    def __init__(self, args, frame_rate=30):
+    def __init__(self, args, max_frame_lost: int):
         """Initialize a YOLOv8 object to track objects with given arguments and frame rate."""
         self.tracked_stracks = []  # type: list[STrack]
         self.lost_stracks = []  # type: list[STrack]
@@ -257,7 +257,7 @@ class BYTETracker:
 
         self.frame_id = 0
         self.args = args
-        self.max_time_lost = int(frame_rate / 30.0 * args.track_buffer)
+        self.max_frame_lost = max_frame_lost
         self.kalman_filter = self.get_kalmanfilter()
         self.reset_id()
 
@@ -360,7 +360,7 @@ class BYTETracker:
             activated_stracks.append(track)
         # Step 5: Update state
         for track in self.lost_stracks:
-            if self.frame_id - track.end_frame > self.max_time_lost:
+            if self.frame_id - track.end_frame > self.max_frame_lost:
                 track.mark_removed()
                 removed_stracks.append(track)
 

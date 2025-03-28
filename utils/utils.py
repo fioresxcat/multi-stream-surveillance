@@ -242,6 +242,22 @@ def compute_image_blurriness(im):
     return score
 
 
+def clip_bbox(bbox: np.ndarray, im_w, im_h):
+    bbox[::2] = np.clip(bbox[::2], 0, im_w)
+    bbox[1::2] = np.clip(bbox[1::2], 0, im_h)
+    return bbox
+
+
+def is_frame_different(frame1, frame2, pixel_threshold=30, percent_threshold=0.02):
+    frame1 = cv2.resize(frame1, (frame1.shape[1]//3, frame1.shape[0]//3))
+    frame2 = cv2.resize(frame2, (frame2.shape[1]//3, frame2.shape[0]//3))
+    diff = cv2.absdiff(frame1, frame2)
+    if len(diff.shape) == 3:
+        diff = cv2.cvtColor(diff, cv2.COLOR_BGR2GRAY)
+    non_zero_count = cv2.countNonZero((diff > pixel_threshold).astype(int))
+    return non_zero_count / diff.size > percent_threshold
+
+
 if __name__ == '__main__':
     for ip in Path('temp').glob('*.png'):
         # Example usage

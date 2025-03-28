@@ -1,10 +1,155 @@
-class ContainerInfo:
-    def __init__(self, cam_id, id, cam_fps, frame_size):
+import pdb
+
+
+class BaseContainerInfo:
+    def __init__(self, cam_id, id, cam_fps, frame_size,  skip_frame: int = 1):
         self.cam_id = cam_id
         self.cam_fps = cam_fps
         self.id = id
         self.start_time = None
         self.end_time = None
+        self.history = []
+        self.camera_direction, self.moving_direction = None, None
+        self.frame_w, self.frame_h = frame_size
+        self.skip_frame = skip_frame
+        self.is_pushed = False
+        self.time_since_update = 0
+        self.supported_cameras = ['htt', 'hts', 'bst', 'bss', 'hps', 'nct']
+
+        self.min_appear_time = 1.5 # seconds
+
+
+    def __repr__(self):
+        return f'ContainerInfo(id={self.id}, start_time={self.start_time}, info={self.info}, camera_direction={self.camera_direction}, num_appear={self.num_appear}, is_done={self.is_done})'
+    
+
+    def __str__(self):
+        return self.__repr__()
+
+    @property
+    def num_appear(self):
+        return len(self.history)
+    
+
+    @property
+    def is_valid_container(self):
+        """
+        Check if the container is valid based on appearance count and movement direction.
+
+        Returns:
+            bool: True if the container meets the minimum appearance duration 
+                and has a defined moving direction, False otherwise.
+        """
+        return self.num_appear >= int(self.cam_fps * self.min_appear_time) / self.skip_frame and self.moving_direction is not None
+    
+
+    def get_moving_direction(self, bboxes):
+        """
+        Determines the moving direction of the container based on bounding boxes.
+
+        Args:
+            bboxes (list of tuples): List of bounding boxes (x1, y1, x2, y2) over time.
+
+        Returns:
+            str: The moving direction ('l2r', 'r2l', 't2b', 'b2t') or None if undetermined.
+        """
+        if self.cam_id not in self.supported_cameras:
+            raise NotImplementedError(f"Camera {self.cam_id} is not supported yet")
+
+        MIN_VALID_PERCENT = 0.7
+        DIFF_THRESHOLD = 3  # Minimum difference to consider movement
+
+        if self.cam_id in ['htt', 'hts', 'hps', 'bst', 'bss']:
+            # Horizontal movement (left-to-right or right-to-left)
+            x_centers = [(bb[0] + bb[2]) / 2 for bb in bboxes]
+            movements = [
+                'l2r' if (x_centers[i + 1] - x_centers[i]) >= DIFF_THRESHOLD else 'r2l'
+                for i in range(len(x_centers) - 1)
+                if abs(x_centers[i + 1] - x_centers[i]) >= DIFF_THRESHOLD
+            ]
+        elif self.cam_id in ['nct', 'ncs']:
+            # Vertical movement (top-to-bottom or bottom-to-top)
+            y_centers = [(bb[1] + bb[3]) / 2 for bb in bboxes]
+            movements = [
+                't2b' if (y_centers[i + 1] - y_centers[i]) >= DIFF_THRESHOLD else 'b2t'
+                for i in range(len(y_centers) - 1)
+                if abs(y_centers[i + 1] - y_centers[i]) >= DIFF_THRESHOLD
+            ]
+        else:
+            return None
+
+        if not movements:
+            return None
+
+        # Count the occurrences of each movement direction
+        direction_counts = {direction: movements.count(direction) for direction in set(movements)}
+
+        # Determine the dominant direction
+        total_movements = sum(direction_counts.values())
+        for direction, count in direction_counts.items():
+            if count / total_movements > MIN_VALID_PERCENT:
+                return direction
+
+        return None
+
+
+    def update_history(self, time_stamp, bb):
+        """
+        Updates the history of bounding boxes and determines the moving direction
+        and camera direction of the container.
+
+        Args:
+            time_stamp (float): The timestamp of the current frame.
+            bb (tuple): The bounding box of the container in the current frame.
+        """
+        MIN_TIME_TO_GET_DIRECTION = 1.2  # Minimum time (in seconds) to determine direction
+        min_frames_required = int(MIN_TIME_TO_GET_DIRECTION * self.cam_fps) / self.skip_frame
+
+        # Append the current bounding box and timestamp to the history
+        self.history.append((time_stamp, bb))
+        self.time_since_update = 0
+
+        # Determine the moving direction if enough frames are available
+        if len(self.history) >= min_frames_required:
+            bboxes = [entry[1] for entry in self.history]
+
+            # If moving direction is not yet determined, calculate it
+            if self.moving_direction is None:
+                self.moving_direction = self.get_moving_direction(bboxes)
+
+            # If moving direction is determined, infer the camera direction
+            if self.moving_direction and self.camera_direction is None:
+                self.camera_direction = self._infer_camera_direction()
+
+
+    def _infer_camera_direction(self):
+        """
+        Infers the camera direction based on the moving direction and camera type.
+
+        Returns:
+            str: The inferred camera direction ('in' or 'out').
+        """
+        if self.cam_id not in self.supported_cameras:
+            raise NotImplementedError(f"Camera {self.cam_id} is not supported yet")
+
+        if self.cam_id in ['htt', 'bst', 'hps']:
+            return 'out' if self.moving_direction == 'r2l' else 'in'
+        elif self.cam_id in ['hts', 'bss']:
+            return 'in' if self.moving_direction == 'r2l' else 'out'
+        elif self.cam_id in ['nct', 'ncs']:
+            return 'in' if self.moving_direction == 't2b' else 'out'
+        else:
+            raise NotImplementedError(f"Camera {self.cam_id} is not supported yet")
+
+
+    def update_info(self, new_info):
+        raise NotImplementedError("This method should be implemented in subclasses.")
+    
+
+    
+class ContainerOCRInfo(BaseContainerInfo):
+    def __init__(self, cam_id, id, cam_fps, frame_size):
+        super().__init__(cam_id, id, cam_fps, frame_size)
         self.info = {
             'owner_code': (None, 0),  # value, score
             'container_number': (None, 0),
@@ -14,57 +159,8 @@ class ContainerInfo:
             'front_license_plate': (None, 0),
         }
         self.info_time_since_update = {field: 0 for field in self.info.keys()}
-        self.history = []
-        self.direction, self.moving_direction = None, None
         self.score_threshold = 0.5
-        self.frame_w, self.frame_h = frame_size
-        self.pushed_to_queue = False
-        self.time_since_update = 0
 
-
-    def __repr__(self):
-        return f'ContainerInfo(id={self.id}, start_time={self.start_time}, info={self.info}, direction={self.direction}, num_appear={self.num_appear}, is_full={self.is_done})'
-    
-
-    def __str__(self):
-        return f'ContainerInfo(id={self.id}, start_time={self.start_time}, info={self.info}, direction={self.direction}, num_appear={self.num_appear}, is_full={self.is_done})'
-
-
-    @property
-    def num_appear(self):
-        return len(self.history)
-    
-    
-    def get_moving_direction(self, bboxes):
-        centers = [(bb[0] + bb[2]) / 2 for bb in bboxes]
-        if self.cam_id in ['htt', 'hts', 'bst', 'bss', 'hps']:
-            movements = []
-            diff_threshold = 3
-            for i in range(len(centers)-1):
-                diff = centers[i+1] - centers[i]
-                if abs(diff) < diff_threshold:
-                    continue
-                movements.append('l2r' if diff >= 0 else 'r2l')
-            num_rights, num_lefts = movements.count('l2r'), movements.count('r2l')
-            if len(movements) == 0:
-                return None
-            if num_rights / len(movements) > 0.7:
-                return 'l2r'
-            elif num_lefts / len(movements) > 0.7:
-                return 'r2l'
-            else:
-                return None
-        else:   
-            raise NotImplementedError(f'Camera {self.cam_id} is not supported yet')
-                
-
-    @property
-    def is_valid_container(self):
-        """
-            appear at least 10 times and do move in a single direction
-        """
-        return self.num_appear >= 50 and self.moving_direction is not None
-    
 
     def update_info(self, new_info):
         for label in self.info:
@@ -79,151 +175,99 @@ class ContainerInfo:
                     self.info_time_since_update[label] += 1
 
 
-    def update_history(self, time_stamp, bb):
-        self.history.append((time_stamp, bb))
-        self.time_since_update = 0
-        if len(self.history) >= 10 and self.direction is None:
-            if self.cam_id in ['htt', 'hts']:
-                bboxes = [el[1] for el in self.history]
-                self.moving_direction = self.get_moving_direction(bboxes)
-                if self.moving_direction is not None:
-                    if self.cam_id in ['htt']:
-                        self.direction = 'out' if self.moving_direction == 'r2l' else 'in'
-                    elif self.cam_id in ['hts']:
-                        self.direction = 'in' if self.moving_direction == 'r2l' else 'out'
-            else:
-                raise NotImplementedError(f'Camera {self.cam_id} is not supported yet')
-
-        if len(self.history) >= 10 and self.moving_direction is None:
-            # num_first_frames = int(1.2*self.cam_fps)
-            bboxes = [el[1] for el in self.history[:]]
-            self.moving_direction = self.get_moving_direction(bboxes)
-
-
     def get_complete_labels(self):
+        """
+        Retrieve complated fields based on their value, score, 
+        and the time since their last update.
+
+        This function filters labels from the `self.info` dictionary where:
+        - The label's value is not None.
+        - The label's score exceeds the `score_threshold`.
+        - The time since the label's last update exceeds a calculated threshold 
+          (`min_no_update_frame`), which is determined by the camera's frame rate 
+          (`self.cam_fps`) and the `MIN_NO_UPDATE_TIME`.
+
+        Returns:
+            list: A list of labels that satisfy the above conditions.
+        """
+        MIN_NO_UPDATE_TIME = 1.5 # seconds
+        min_no_update_frame = int(MIN_NO_UPDATE_TIME * self.cam_fps) / self.skip_frame
+
         complete_labels = []
         for label, (value, score) in self.info.items():
-            if value is not None and score > self.score_threshold and self.info_time_since_update[label] > 1.5 * self.cam_fps:  # no update in 1.5 seconds
+            if (value is not None and score > self.score_threshold):  # no update in last n seconds
                 complete_labels.append(label)
         return complete_labels
 
 
     def get_incomplete_labels(self):
-        # incomplete_labels = [label for label, (value, score) in self.info.items() if value is None or score < self.score_threshold]
+        """
+        Retrieve a list of labels that are incomplete based on the current camera direction.
+        This method compares the labels in `self.info` with the complete labels obtained 
+        from `self.get_complete_labels()` and filters out specific labels depending on 
+        the camera direction ('in' or 'out').
+        Returns:
+            list: A list of incomplete labels after applying the camera direction filter.
+        """
+        # Filter incomplete labels based on camera direction
         complete_labels = self.get_complete_labels()
         incomplete_labels = [label for label in self.info if label not in complete_labels]
     
-        if self.direction == 'out':
-            incomplete_labels = [label for label in incomplete_labels if label != 'front_license_plate']
-        elif self.direction == 'in':
+        if self.camera_direction == 'out':
+            exclude_labels = ['front_license_plate']
+        elif self.camera_direction == 'in':
             exclude_labels = {'owner_code', 'container_number', 'check_digit', 'container_type', 'rear_license_plate'}
-            incomplete_labels = [label for label in incomplete_labels if label not in exclude_labels]
+        incomplete_labels = [label for label in incomplete_labels if label not in exclude_labels]
         
         return incomplete_labels
     
 
     @property
     def is_done(self):
-        if self.direction is None:
+        if self.camera_direction is None:
             return False
-        required_labels = ['front_license_plate'] if self.direction == 'in' else ['owner_code', 'container_number', 'check_digit', 'container_type', 'rear_license_plate']
+        required_labels = ['front_license_plate'] if self.camera_direction == 'in' else ['owner_code', 'container_number', 'check_digit', 'container_type', 'rear_license_plate']
         return set(self.get_complete_labels()) == set(required_labels)
     
 
 
-class ContainerDefectInfo:
-    def __init__(self, cam_id, id, cam_fps, frame_size, max_frame_result=3):
-        self.cam_id = cam_id
-        self.cam_fps = cam_fps
-        self.id = id
-        self.start_time = None
-        self.end_time = None
-        self.max_frame_result = max_frame_result
+class ContainerDefectInfo(BaseContainerInfo):
+    def __init__(self, cam_id, id, cam_fps, frame_size):
+        super().__init__(cam_id, id, cam_fps, frame_size)
         self.info = [
-            {'image': None, 'boxes': [], 'scores': [], 'cl_names': []} for _ in range(self.max_frame_result)
+            {'image': None, 'boxes': [], 'scores': [], 'names': []} for _ in range(self.max_final_results)
         ]
-        self.images = []
-        self.history = []
-        self.direction, self.moving_direction = None, None
-        self.frame_w, self.frame_h = frame_size
-        self.pushed_to_queue = False
-        self.time_since_update = 0
+        self.max_final_results = 5
+        self.max_cand_results = 50
+        self.max_image_buffer_size = 12  # ideally multiple of defect detector batch size
+        self.image_buffer = []
+        self.cand_results = []
         self.is_done = False
 
 
     def __repr__(self):
-        print_info = [el['cl_names'] for el in self.info]
-        return f'ContainerInfo(id={self.id}, start_time={self.start_time}, info={print_info}, direction={self.direction}, num_appear={self.num_appear}, is_full={self.is_full})'
-    
-
-    def __str__(self):
-        return self.__repr__()
+        print_info = [el['names'] for el in self.info]
+        return f'ContainerInfo(id={self.id}, start_time={self.start_time}, info={print_info}, moving_direction={self.moving_direction}, num_appear={self.num_appear}, is_done={self.is_done})'
 
 
-    @property
-    def num_appear(self):
-        return len(self.history)
-    
-
-    def get_moving_direction(self, bboxes):
-        centers = [(bb[0] + bb[2]) / 2 for bb in bboxes]
-        if self.cam_id in ['htt', 'hts', 'bst', 'bss', 'hps']:
-            movements = ['l2r' if centers[i+1] - centers[i] >= 0 else 'r2l' for i in range(len(centers)-1)]
-            num_rights, num_lefts = movements.count('l2r'), movements.count('r2l')
-            if num_rights / len(movements) > 0.7:
-                return 'l2r'
-            elif num_lefts / len(movements) > 0.7:
-                return 'r2l'
-            else:
-                return None
-        else:   
-            raise NotImplementedError(f'Camera {self.cam_id} is not supported yet')
-                
-
-    @property
-    def is_valid_container(self):
-        """
-            appear at least 10 times and do move in a single direction
-        """
-        return self.num_appear >= 50 and self.moving_direction is not None
-        
-
-    def update_image(self, timestamp, im):
-        self.images.append((timestamp, im))
+    def add_candidate_images(self, timestamp, im):
+        self.image_buffer.append((timestamp, im))
 
 
     def update_info(self, new_info):
-        assert len(new_info) == len(self.images)
-        for index, (im, (boxes, scores, cl_names)) in enumerate(zip(self.images, new_info)):
+        assert len(new_info) == len(self.image_buffer)
+        for index, (im, (boxes, scores, cl_names)) in enumerate(zip(self.image_buffer, new_info)):
             # self.info[index]['image'] = im
             self.info[index]['boxes'] = boxes
             self.info[index]['scores'] = scores
-            self.info[index]['cl_names'] = cl_names
+            self.info[index]['names'] = cl_names
         self.is_done = True
-
-
-    def update_history(self, timestamp, bb):
-        self.history.append((timestamp, bb))
-        self.time_since_update = 0
-        if len(self.history) >= 10 and self.direction is None:
-            if self.cam_id in ['htt', 'hts', 'hps']:
-                # num_first_frames = int(1.2*self.cam_fps)
-                bboxes = [el[1] for el in self.history[:]]
-                self.moving_direction = self.get_moving_direction(bboxes)
-                if self.moving_direction is not None:
-                    if self.cam_id in ['htt', 'hps']:
-                        self.direction = 'out' if self.moving_direction == 'r2l' else 'in'
-                    elif self.cam_id in ['hts']:
-                        self.direction = 'in' if self.moving_direction == 'r2l' else 'out'
-            else:
-                raise NotImplementedError(f'Camera {self.cam_id} is not supported yet')
-
-        if len(self.history) >= 10 and self.moving_direction is None:
-            # num_first_frames = int(1.2*self.cam_fps)
-            bboxes = [el[1] for el in self.history[:]]
-            self.moving_direction = self.get_moving_direction(bboxes)
-
+        
+    
+    @property
+    def is_full_candidate(self):
+        return len(self.image_buffer) == self.max_final_results
 
     @property
-    def is_full(self):
-        return len(self.images) >= self.max_frame_result
+    def is_full_result(self):
+        return len(self.cand_results) == self.max_cand_results

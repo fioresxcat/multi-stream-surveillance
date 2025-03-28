@@ -52,3 +52,14 @@ ppocrv4_rec:
     max_batch_size: 8
     output_name: softmax_2.tmp_0
     request_timeout: 60.0
+
+vietnamese_lp_ocr:
+    model_spec_name: vietnamese_lp_ocr
+    input_name: input
+    input_shape: [48, 112, 3]
+    input_type: FP32
+    max_sequence_length: 10
+    charset: "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    max_batch_size: 4
+    output_name: output
+    request_timeout: 60.0
