@@ -67,6 +67,9 @@ class OCRCameraProcessor(BaseCameraProcessor):
             else:  # frame is the same and last frame has boxes
                 boxes, scores, cl_names = last_boxes, last_scores, last_cl_names
 
+            # boxes, scores, cl_names = self.container_detector.predict([frame])[0]
+            # is_frame_different = True
+
             tracked_ids = []
             if len(boxes) > 0:
                 tracked_ids = self._process_detections(frame, timestamp, boxes, scores)
@@ -174,7 +177,7 @@ class OCRCameraProcessor(BaseCameraProcessor):
 
     def _update_or_create_container(self, obj_id, timestamp, bbox):
         if obj_id not in self.database:
-            container_info = ContainerOCRInfo(self.cam_id, obj_id, self.fps, (self.im_w, self.im_h))
+            container_info = ContainerOCRInfo(self.cam_id, obj_id, self.fps, (self.im_w, self.im_h), self.skip_frame)
             container_info.start_time = timestamp
             self.database[obj_id] = container_info
         else:

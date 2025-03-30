@@ -1,5 +1,5 @@
 import pdb
-
+import logging
 
 class BaseContainerInfo:
     def __init__(self, cam_id, id, cam_fps, frame_size,  skip_frame: int = 1):
@@ -17,6 +17,7 @@ class BaseContainerInfo:
         self.supported_cameras = ['htt', 'hts', 'bst', 'bss', 'hps', 'nct']
 
         self.min_appear_time = 1.5 # seconds
+        self.logger = logging.getLogger(f'camera-{self.cam_id}')
 
 
     def __repr__(self):
@@ -83,7 +84,6 @@ class BaseContainerInfo:
 
         # Count the occurrences of each movement direction
         direction_counts = {direction: movements.count(direction) for direction in set(movements)}
-
         # Determine the dominant direction
         for direction, count in direction_counts.items():
             if count / len(movements) > MIN_VALID_PERCENT:
@@ -103,7 +103,6 @@ class BaseContainerInfo:
         """
         MIN_TIME_TO_GET_DIRECTION = 1.2  # Minimum time (in seconds) to determine direction
         min_frames_required = int(MIN_TIME_TO_GET_DIRECTION * self.cam_fps) / self.skip_frame
-
         # Append the current bounding box and timestamp to the history
         self.history.append((time_stamp, bb))
         self.time_since_update = 0
@@ -147,8 +146,8 @@ class BaseContainerInfo:
 
     
 class ContainerOCRInfo(BaseContainerInfo):
-    def __init__(self, cam_id, id, cam_fps, frame_size):
-        super().__init__(cam_id, id, cam_fps, frame_size)
+    def __init__(self, cam_id, id, cam_fps, frame_size, skip_frame):
+        super().__init__(cam_id, id, cam_fps, frame_size, skip_frame)
         self.supported_cameras = [cam_id+'-ocr' for cam_id in self.supported_cameras]
         self.info = {
             'owner_code': (None, 0),  # value, score
@@ -233,8 +232,8 @@ class ContainerOCRInfo(BaseContainerInfo):
 
 
 class ContainerDefectInfo(BaseContainerInfo):
-    def __init__(self, cam_id, id, cam_fps, frame_size):
-        super().__init__(cam_id, id, cam_fps, frame_size)
+    def __init__(self, cam_id, id, cam_fps, frame_size, skip_frame):
+        super().__init__(cam_id, id, cam_fps, frame_size, skip_frame)
         self.supported_cameras = [cam_id+'-defect' for cam_id in self.supported_cameras]
 
         self.max_final_results = 5

@@ -24,7 +24,7 @@ config_model = load_yaml('configs/config_models.yaml')
 
 # setup logging
 log_dir = 'logs'
-setup_logging(log_dir, log_file='app.log', level=logging.DEBUG, enabled_cameras=['bst'])
+setup_logging(log_dir, log_file='app.log', level=logging.DEBUG, enabled_cameras=['hts'])
 logger = logging.getLogger('main')
 
 # some constants
@@ -195,24 +195,24 @@ class ContainerProcessor:
 def main():
     fps = 25
     video_sources = {
-        # 'htt-ocr': 'test_files/hongtraitruoc-cut610_longer.mp4',
-        # 'hts-ocr': 'test_files/hongtraisau-cut610_longer.mp4',
+        'htt-ocr': 'test_files/hongtraitruoc-cut610_longer.mp4',
+        'hts-ocr': 'test_files/hongtraisau-cut610_longer.mp4',
         # 'hps-defect': 'test_files/hongphaisau-cut610_longer.mp4',
         # 'htt-defect': 'test_files/hongtraitruoc-cut610_longer.mp4',
         # 'hts-defect': 'test_files/hongtraisau-cut610_longer.mp4',
 
-        'hps-defect': 'test_files/hongphaisau-21032025-cut1.mp4',
-        'bst-ocr': 'test_files/biensotruoc-21032025-cut1.mp4',
-        'bss-ocr': 'test_files/biensosau-21032025-cut1.mp4',
+        # 'hps-defect': 'test_files/hongphaisau-21032025-cut1.mp4',
+        # 'bst-ocr': 'test_files/biensotruoc-21032025-cut1.mp4',
+        # 'bss-ocr': 'test_files/biensosau-21032025-cut1.mp4',
     }
     ocr_cams = [
-        # 'htt-ocr', 
-        # 'hts-ocr',
-        'bst-ocr',
-        'bss-ocr'
+        'htt-ocr', 
+        'hts-ocr',
+        # 'bst-ocr',
+        # 'bss-ocr'
     ]
     defect_cams = [
-        'hps-defect', 
+        # 'hps-defect', 
         # 'htt-defect', 
         # 'hts-defect',
     ]
