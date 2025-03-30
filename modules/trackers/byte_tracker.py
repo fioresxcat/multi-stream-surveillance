@@ -115,10 +115,12 @@ class STrack(BaseTrack):
 
         self.tracklet_len = 0
         self.state = TrackState.Tracked
+        # pdb.set_trace()
         if frame_id == 1:
             self.is_activated = True
         self.frame_id = frame_id
         self.start_frame = frame_id
+
 
     def re_activate(self, new_track, frame_id, new_id=False):
         """Reactivates a previously lost track with a new detection."""
@@ -129,12 +131,14 @@ class STrack(BaseTrack):
         self.state = TrackState.Tracked
         self.is_activated = True
         self.frame_id = frame_id
+        # pdb.set_trace()
         if new_id:
             self.track_id = self.next_id()
         self.score = new_track.score
         self.cls = new_track.cls
         self.angle = new_track.angle
         self.idx = new_track.idx
+
 
     def update(self, new_track, frame_id):
         """
@@ -462,5 +466,14 @@ class BYTETracker:
             if track.track_id == id:
                 track.mark_removed()
                 self.lost_stracks.remove(track)
+                self.removed_stracks.append(track)
+                break
+
+    
+    def remove_tracked_track_if_needed(self):
+        for track in self.tracked_stracks:
+            if self.frame_id - track.end_frame >= self.max_frame_lost:
+                track.mark_removed()
+                self.tracked_stracks.remove(track)
                 self.removed_stracks.append(track)
                 break

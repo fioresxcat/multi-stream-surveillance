@@ -73,6 +73,10 @@ class OCRCameraProcessor(BaseCameraProcessor):
             tracked_ids = []
             if len(boxes) > 0:
                 tracked_ids = self._process_detections(frame, timestamp, boxes, scores)
+            else:
+                self.tracker.frame_id += 1
+                self.tracker.remove_tracked_track_if_needed()
+
             # remove inactive tracks
             inactive_ids = [id for id in self.database.keys() if id not in tracked_ids]
             self._process_inactive_tracks(inactive_ids)
@@ -225,15 +229,17 @@ class OCRCameraProcessor(BaseCameraProcessor):
         """
         self.logger.debug(f'------- FRAME {self.frame_cnt} - TIME {timestamp} - {self.cam_id.upper()} DATABASE -------')
         self.logger.debug(f'Find {len(boxes)} boxes in this frame')
-        for container_id, container_info in self.database.items():
-            self.logger.debug(
-                f'CONTAINER {container_id}: appear: {container_info.num_appear}, '
-                f'moving_direction: {container_info.moving_direction}, '
-                f'camera_direction: {container_info.camera_direction}, '
-                f'is_valid: {container_info.is_valid_container}, '
-                f'is_done: {container_info.is_done}, '
-                f'info: {container_info.info}'
-            )
+        # for container_id, container_info in self.database.items():
+        #     self.logger.debug(
+        #         f'CONTAINER {container_id}: appear: {container_info.num_appear}, '
+        #         f'moving_direction: {container_info.moving_direction}, '
+        #         f'camera_direction: {container_info.camera_direction}, '
+        #         f'is_valid: {container_info.is_valid_container}, '
+        #         f'is_done: {container_info.is_done}, '
+        #         f'info: {container_info.info}'
+        #     )
+        tracker_tracked_ids = [track.track_id for track in self.tracker.tracked_stracks]
+        self.logger.debug(f'Tracker tracked ids: {tracker_tracked_ids}')
         self.logger.debug('\n\n')
     
     

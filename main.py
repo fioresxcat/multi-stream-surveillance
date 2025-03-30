@@ -195,8 +195,8 @@ class ContainerProcessor:
 def main():
     fps = 25
     video_sources = {
-        'htt-ocr': 'test_files/hongtraitruoc-cut610_longer.mp4',
-        'hts-ocr': 'test_files/hongtraisau-cut610_longer.mp4',
+        'htt-ocr': 'test_files/hongtraitruoc-cut611.mp4',
+        'hts-ocr': 'test_files/hongtraisau-cut611.mp4',
         # 'hps-defect': 'test_files/hongphaisau-cut610_longer.mp4',
         # 'htt-defect': 'test_files/hongtraitruoc-cut610_longer.mp4',
         # 'hts-defect': 'test_files/hongtraisau-cut610_longer.mp4',
