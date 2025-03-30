@@ -30,7 +30,6 @@ logger = logging.getLogger('main')
 # some constants
 CAMERA_MODE = 'video' # 'video' or 'stream'
 
-
 class ContainerProcessor:
     def __init__(self, video_sources: dict, fps: int, skip_frame: int, ocr_cams: List[str], defect_cams: List[str]):
         self.fps = fps
@@ -195,16 +194,25 @@ class ContainerProcessor:
 def main():
     fps = 25
     video_sources = {
-        # 'htt': 'test_files/hongtraitruoc-cut610_longer.mp4',
-        # 'hts': 'test_files/hongtraisau-cut610_longer.mp4',
-        # 'hps': 'test_files/hongphaisau-cut610_longer.mp4',
+        'htt-ocr': 'test_files/hongtraitruoc-cut610_longer.mp4',
+        'hts-ocr': 'test_files/hongtraisau-cut610_longer.mp4',
+        'hps-defect': 'test_files/hongphaisau-cut610_longer.mp4',
+        'htt-defect': 'test_files/hongtraitruoc-cut610_longer.mp4',
+        'hts-defect': 'test_files/hongtraisau-cut610_longer.mp4',
 
-        'hps': 'test_files/hongphaisau-21032025-cut1.mp4',
-        'bst': 'test_files/biensotruoc-21032025-cut1.mp4',
-        'bss': 'test_files/biensosau-21032025-cut1.mp4',
+        # 'hps': 'test_files/hongphaisau-21032025-cut1.mp4',
+        # 'bst': 'test_files/biensotruoc-21032025-cut1.mp4',
+        # 'bss': 'test_files/biensosau-21032025-cut1.mp4',
     }
-    ocr_cams = ['bst', 'bss']
-    defect_cams = ['hps']
+    ocr_cams = [
+        'htt-ocr', 
+        'hts-ocr'
+    ]
+    defect_cams = [
+        'hps-defect', 
+        'htt-defect', 
+        'hts-defect'
+    ]
     skip_frame = int(0.15*fps) # num frames
     processor = ContainerProcessor(video_sources, fps, skip_frame, ocr_cams, defect_cams)
     processor.run()

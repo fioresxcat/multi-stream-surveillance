@@ -12,8 +12,8 @@ from easydict import EasyDict
 import logging
 
 from modules.trackers import BYTETracker, BOTSORT
-from utils.utils import sort_box_by_score, xyxy2xywh, compute_image_blurriness, clip_bbox
-from methods import ContainerDetector, ContainerInfoDetector, LicensePlateOCR, PPOCRv4Rec, ParseqLicensePlateOCR
+from utils.utils import *
+from methods import ContainerDetector, ContainerInfoDetector, LicensePlateOCR, PPOCRv4Rec, ParseqLicensePlateOCR, ParseqGeneralOCR
 from container_info import ContainerOCRInfo
 from base_camera import BaseCameraProcessor
 
@@ -31,6 +31,7 @@ class OCRCameraProcessor(BaseCameraProcessor):
         self.container_info_detector = ContainerInfoDetector.get_instance(config_inference_server, config_model['container_info_detection'])
         self.license_plate_ocr = ParseqLicensePlateOCR.get_instance(config_inference_server, config_model['vietnamese_lp_ocr'])
         self.general_ocr = PPOCRv4Rec.get_instance(config_inference_server, config_model['ppocrv4_rec'])
+        # self.general_ocr = ParseqGeneralOCR.get_instance(config_inference_server, config_model['parseq_tiny_general_ocr'])
 
         self.blur_threshold = 1  # threshold to check for blurriness when extract info
         self.min_appearance_to_count_as_detected = 0.5  # seconds
@@ -40,12 +41,13 @@ class OCRCameraProcessor(BaseCameraProcessor):
         self.logger = logging.getLogger(f'camera-{self.cam_id}')
         self.logger.info(f"Initializing OCR Camera Processor for camera {self.cam_id}")
         self.log_path = os.path.join(logging.getLogger().log_dir, f'camera-{self.cam_id}.log')
-        with open(self.log_path, 'w') as f:
-            f.write('')
-        
+        clear_file(self.log_path)
+
 
     def process(self):
         self.is_running = True
+        last_frame = None
+        last_boxes, last_scores, last_cl_names = [], [], []
         while self.is_running:
             frame_info = self._get_next_frame()
             if not frame_info:
@@ -53,55 +55,27 @@ class OCRCameraProcessor(BaseCameraProcessor):
 
             self.frame_cnt += 1
             timestamp, frame = frame_info['timestamp'], frame_info['frame']
-            boxes, scores, cl_names = self.container_detector.predict([frame])[0]
+
+            # check frame diff
+            # risk: if the first frame of the streak, bboxes is not detected or detected wrong -> all subsequent duplicate frame will inherit the wrong boxes
+            if last_frame is None or is_frame_different(frame, last_frame):
+                boxes, scores, cl_names = self.container_detector.predict([frame])[0]
+                last_frame = frame.copy()
+                last_boxes, last_scores, last_cl_names = boxes, scores, cl_names
+            else:  # frame is the same and last frame has boxes
+                boxes, scores, cl_names = last_boxes, last_scores, last_cl_names
 
             tracked_ids = []
             if len(boxes) > 0:
                 tracked_ids = self._process_detections(frame, timestamp, boxes, scores)
             # remove inactive tracks
             inactive_ids = [id for id in self.database.keys() if id not in tracked_ids]
-            self._remove_inactive_tracks(inactive_ids)
+            self._process_inactive_tracks(inactive_ids)
             # clear event
             if len(self.database) == 0 and self.container_detected_event[self.cam_id].is_set():
                 self.container_detected_event[self.cam_id].clear()
             # log database state
             self._log_database_state(timestamp, boxes)
-
-
-    def _is_bbox_valid(self, bbox, container_info: ContainerOCRInfo):
-        camera_direction = container_info.camera_direction
-        if camera_direction is None:
-            return False
-        xmin, ymin, xmax, ymax = bbox
-        cx, cy = (xmin + xmax) / 2, (ymin + ymax) / 2
-
-        if self.cam_id in ['htt']:            
-            if camera_direction == 'out':
-                return ymax < 0.95*self.im_h or xmax < 0.6 * self.im_w  # container is moving out from right to left
-            elif camera_direction == 'in':
-                return xmax < self.im_w // 2 and ymax < 0.95 * self.im_h  # container is moving in from left to right
-
-        elif self.cam_id in ['hts']:
-            if camera_direction == 'in':
-                return 0.8 * self.im_w > xmin > self.im_w // 2
-            elif camera_direction == 'out':
-                return ymax < 0.95 * self.im_h or xmin > 0.5
-        
-        elif self.cam_id in ['bst']:
-            if camera_direction == 'in':
-                return xmax > 0.5 * self.im_w
-            elif camera_direction == 'out':
-                return xmax < 0.7 * self.im_w and ymax < 0.8 * self.im_h
-        
-        elif self.cam_id in ['bss']:
-            if camera_direction == 'in':
-                return xmin < 0.6 * self.im_w and xmin > 0.2 * self.im_w
-            elif camera_direction == 'out':
-                return xmin > 0.2 * self.im_w
-
-        else:
-            raise NotImplementedError(f"Camera ID {self.cam_id} not supported")
-        
 
             
     def _extract_container_info(self, container_im, extract_labels=[]):
@@ -175,14 +149,15 @@ class OCRCameraProcessor(BaseCameraProcessor):
             obj_id = track.track_id
             tracked_ids.append(obj_id)
             bbox = clip_bbox(np.array(track.xyxy).astype(int), self.im_w, self.im_h).tolist()
-            container_info = self._update_container_history(obj_id, timestamp, bbox)
+            container_info = self._update_or_create_container(obj_id, timestamp, bbox)
             
-            if self._is_bbox_valid(bbox, container_info) and not container_info.is_done:
-                container_im = frame[bbox[1]:bbox[3], bbox[0]:bbox[2]]
-                extracted_info = self._extract_container_info(container_im, extract_labels=container_info.get_incomplete_labels())
-                container_info.update_info(extracted_info)
-            else:
-                container_info.update_info({}) # if container detected but cannot extract info, still increase info_time_since_update
+            if not container_info.is_done:
+                if self._is_frame_candidate(bbox, container_info):
+                    container_im = frame[bbox[1]:bbox[3], bbox[0]:bbox[2]]
+                    extracted_info = self._extract_container_info(container_im, extract_labels=container_info.get_incomplete_labels())
+                    container_info.update_info(extracted_info)
+                else:
+                    container_info.update_info({}) # if container detected but cannot extract info, still increase info_time_since_update
             # set container detected event
             if container_info.num_appear >= self.min_appearance_to_count_as_detected and not self.container_detected_event[self.cam_id].is_set():
                 self.container_detected_event[self.cam_id].set()
@@ -190,11 +165,12 @@ class OCRCameraProcessor(BaseCameraProcessor):
             if container_info.is_done and (not container_info.is_pushed) and container_info.is_valid_container:
                 if self.is_last_valid_container_pushed(container_info):
                     self._push_info(container_info)
+                    # do not remove id here, otherwise the tracker will create new id for the container we've just removed
         
         return tracked_ids
 
 
-    def _update_container_history(self, obj_id, timestamp, bbox):
+    def _update_or_create_container(self, obj_id, timestamp, bbox):
         if obj_id not in self.database:
             container_info = ContainerOCRInfo(self.cam_id, obj_id, self.fps, (self.im_w, self.im_h))
             container_info.start_time = timestamp
@@ -221,7 +197,7 @@ class OCRCameraProcessor(BaseCameraProcessor):
         container_info.is_pushed = True
 
 
-    def _remove_inactive_tracks(self, inactive_ids):
+    def _process_inactive_tracks(self, inactive_ids):
         """
         Removes inactive tracks from the tracker and the database.
         """
@@ -235,12 +211,7 @@ class OCRCameraProcessor(BaseCameraProcessor):
             if container_info.is_valid_container and not container_info.is_pushed:
                 self._push_info(container_info)
             self.database.pop(id)
-            for track in self.tracker.lost_stracks:
-                if track.track_id == id:
-                    track.mark_removed()
-                    self.tracker.lost_stracks.remove(track)
-                    self.tracker.removed_stracks.append(track)
-                    break
+            self.tracker.remove_lost_track(id)
 
 
     def _log_database_state(self, timestamp, boxes):
@@ -261,5 +232,43 @@ class OCRCameraProcessor(BaseCameraProcessor):
         self.logger.debug('\n\n')
     
     
+    def _is_frame_candidate(self, bbox, container_info: ContainerOCRInfo):
+        """
+            heuristic to check if the current frame is a candidate for extracting info
+        """
+        camera_direction = container_info.camera_direction
+        if camera_direction is None:
+            return False
+        xmin, ymin, xmax, ymax = bbox
+        cx, cy = (xmin + xmax) / 2, (ymin + ymax) / 2
+
+        if self.cam_id in ['htt-ocr']:            
+            if camera_direction == 'out':
+                return ymax < 0.95*self.im_h or xmax < 0.6 * self.im_w  # container is moving out from right to left
+            elif camera_direction == 'in':
+                return xmax < self.im_w // 2 and ymax < 0.95 * self.im_h  # container is moving in from left to right
+
+        elif self.cam_id in ['hts-ocr']:
+            if camera_direction == 'in':
+                return 0.8 * self.im_w > xmin > self.im_w // 2
+            elif camera_direction == 'out':
+                return ymax < 0.95 * self.im_h or xmin > 0.5
+        
+        elif self.cam_id in ['bst-ocr']:
+            if camera_direction == 'in':
+                return xmax > 0.5 * self.im_w
+            elif camera_direction == 'out':
+                return xmax < 0.7 * self.im_w and ymax < 0.8 * self.im_h
+        
+        elif self.cam_id in ['bss-ocr']:
+            if camera_direction == 'in':
+                return xmin < 0.6 * self.im_w and xmin > 0.2 * self.im_w
+            elif camera_direction == 'out':
+                return xmin > 0.2 * self.im_w
+
+        else:
+            raise NotImplementedError(f"Camera ID {self.cam_id} not supported")
+        
+
     def run(self):
         self.process()

@@ -59,7 +59,7 @@ class BaseContainerInfo:
         MIN_VALID_PERCENT = 0.7
         DIFF_THRESHOLD = 3  # Minimum difference to consider movement
 
-        if self.cam_id in ['htt', 'hts', 'hps', 'bst', 'bss']:
+        if any(el in self.cam_id for el in ['htt', 'hts', 'hps', 'bst', 'bss']):
             # Horizontal movement (left-to-right or right-to-left)
             x_centers = [(bb[0] + bb[2]) / 2 for bb in bboxes]
             movements = [
@@ -67,7 +67,7 @@ class BaseContainerInfo:
                 for i in range(len(x_centers) - 1)
                 if abs(x_centers[i + 1] - x_centers[i]) >= DIFF_THRESHOLD
             ]
-        elif self.cam_id in ['nct', 'ncs']:
+        elif any(el in self.cam_id for el in ['nct', 'ncs']):
             # Vertical movement (top-to-bottom or bottom-to-top)
             y_centers = [(bb[1] + bb[3]) / 2 for bb in bboxes]
             movements = [
@@ -85,9 +85,8 @@ class BaseContainerInfo:
         direction_counts = {direction: movements.count(direction) for direction in set(movements)}
 
         # Determine the dominant direction
-        total_movements = sum(direction_counts.values())
         for direction, count in direction_counts.items():
-            if count / total_movements > MIN_VALID_PERCENT:
+            if count / len(movements) > MIN_VALID_PERCENT:
                 return direction
 
         return None
@@ -111,7 +110,7 @@ class BaseContainerInfo:
 
         # Determine the moving direction if enough frames are available
         if len(self.history) >= min_frames_required:
-            bboxes = [entry[1] for entry in self.history]
+            bboxes = [entry[1] for entry in self.history[0::2]]  # Take every second frame for speed calculation
 
             # If moving direction is not yet determined, calculate it
             if self.moving_direction is None:
@@ -132,11 +131,11 @@ class BaseContainerInfo:
         if self.cam_id not in self.supported_cameras:
             raise NotImplementedError(f"Camera {self.cam_id} is not supported yet")
 
-        if self.cam_id in ['htt', 'bst', 'hps']:
+        if any(el in self.cam_id for el in ['htt', 'bst', 'hps']):
             return 'out' if self.moving_direction == 'r2l' else 'in'
-        elif self.cam_id in ['hts', 'bss']:
+        elif any(el in self.cam_id for el in ['hts', 'bss']):
             return 'in' if self.moving_direction == 'r2l' else 'out'
-        elif self.cam_id in ['nct', 'ncs']:
+        elif any(el in self.cam_id for el in ['nct', 'ncs']):
             return 'in' if self.moving_direction == 't2b' else 'out'
         else:
             raise NotImplementedError(f"Camera {self.cam_id} is not supported yet")
@@ -150,6 +149,7 @@ class BaseContainerInfo:
 class ContainerOCRInfo(BaseContainerInfo):
     def __init__(self, cam_id, id, cam_fps, frame_size):
         super().__init__(cam_id, id, cam_fps, frame_size)
+        self.supported_cameras = [cam_id+'-ocr' for cam_id in self.supported_cameras]
         self.info = {
             'owner_code': (None, 0),  # value, score
             'container_number': (None, 0),
@@ -165,13 +165,14 @@ class ContainerOCRInfo(BaseContainerInfo):
     def update_info(self, new_info):
         for label in self.info:
             if label not in new_info:
-                self.info_time_since_update[label] += 1
+                if self.info[label][1] > 0:
+                    self.info_time_since_update[label] += 1
             else:
                 value, score = new_info[label]
                 if score > self.info[label][1]:
                     self.info[label] = (value, score)
                     self.info_time_since_update[label] = 0
-                else:
+                elif self.info[label][1] > 0:  # score > 0 means this label has been update at least 1 time
                     self.info_time_since_update[label] += 1
 
 
@@ -195,7 +196,7 @@ class ContainerOCRInfo(BaseContainerInfo):
 
         complete_labels = []
         for label, (value, score) in self.info.items():
-            if (value is not None and score > self.score_threshold):  # no update in last n seconds
+            if score > self.score_threshold and self.info_time_since_update[label] >= min_no_update_frame:  # no update in last n seconds
                 complete_labels.append(label)
         return complete_labels
 
@@ -234,15 +235,16 @@ class ContainerOCRInfo(BaseContainerInfo):
 class ContainerDefectInfo(BaseContainerInfo):
     def __init__(self, cam_id, id, cam_fps, frame_size):
         super().__init__(cam_id, id, cam_fps, frame_size)
-        self.info = [
-            {'image': None, 'boxes': [], 'scores': [], 'names': []} for _ in range(self.max_final_results)
-        ]
+        self.supported_cameras = [cam_id+'-defect' for cam_id in self.supported_cameras]
+
         self.max_final_results = 5
         self.max_cand_results = 50
-        self.max_image_buffer_size = 12  # ideally multiple of defect detector batch size
-        self.image_buffer = []
         self.cand_results = []
+        self.info = []
+        self.max_image_buffer_size = 10  # ideally multiple of defect detector batch size
+        self.image_buffer = []
         self.is_done = False
+        self.last_timestamp = None
 
 
     def __repr__(self):
@@ -250,23 +252,42 @@ class ContainerDefectInfo(BaseContainerInfo):
         return f'ContainerInfo(id={self.id}, start_time={self.start_time}, info={print_info}, moving_direction={self.moving_direction}, num_appear={self.num_appear}, is_done={self.is_done})'
 
 
-    def add_candidate_images(self, timestamp, im):
+    def add_image_to_buffer(self, timestamp, im):
         self.image_buffer.append((timestamp, im))
+        self.last_timestamp = timestamp
 
 
-    def update_info(self, new_info):
-        assert len(new_info) == len(self.image_buffer)
-        for index, (im, (boxes, scores, cl_names)) in enumerate(zip(self.image_buffer, new_info)):
-            # self.info[index]['image'] = im
-            self.info[index]['boxes'] = boxes
-            self.info[index]['scores'] = scores
-            self.info[index]['names'] = cl_names
+    def add_cand_result(self, image, boxes, scores, names, timestamp):
+        self.cand_results.append({
+            'image': image, 'boxes': boxes, 'scores': scores, 'names': names, 'timestamp': timestamp
+        })
+
+
+    def gather_final_results(self):
+        """
+        from cand_results, gather final results
+        """
+        self.cand_results.sort(key=lambda x: len(x['names']), reverse=True)
+        last_timestamp = None
+        index = 0
+        min_time_diff = 0.2
+        while len(self.info) < self.max_final_results and len(self.cand_results) > 0:
+            res = self.cand_results[index]
+            if len(res['names']) == 0:
+                break
+            if last_timestamp is None or res['timestamp'] - last_timestamp > min_time_diff:
+                self.info.append(res)
+                last_timestamp = res['timestamp']
+            index += 1
+            if index == len(self.cand_results):
+                break
+
         self.is_done = True
-        
     
+
     @property
-    def is_full_candidate(self):
-        return len(self.image_buffer) == self.max_final_results
+    def is_full_buffer(self):
+        return len(self.image_buffer) == self.max_image_buffer_size
 
     @property
     def is_full_result(self):

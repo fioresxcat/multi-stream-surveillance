@@ -455,3 +455,12 @@ class BYTETracker:
         resa = [t for i, t in enumerate(stracksa) if i not in dupa]
         resb = [t for i, t in enumerate(stracksb) if i not in dupb]
         return resa, resb
+
+
+    def remove_lost_track(self, id):
+        for track in self.lost_stracks:
+            if track.track_id == id:
+                track.mark_removed()
+                self.lost_stracks.remove(track)
+                self.removed_stracks.append(track)
+                break

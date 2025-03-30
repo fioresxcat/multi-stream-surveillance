@@ -64,11 +64,11 @@ class BaseCameraProcessor:
             return None
 
     
-    def is_last_valid_container_pushed(self, current_container_info: BaseContainerInfo):
+    def is_last_valid_container_pushed(self, current_container: BaseContainerInfo):
         if len(self.database) <= 1:
             return True
         keys = list(self.database.keys())
-        index = keys.index(current_container_info.id)
+        index = keys.index(current_container.id)
         last_container_info = self.database[keys[index-1]]
         if last_container_info.is_valid_container and not last_container_info.is_pushed:
             return False

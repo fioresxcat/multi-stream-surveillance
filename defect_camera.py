@@ -12,7 +12,7 @@ from modules.trackers import BYTETracker, BOTSORT
 from easydict import EasyDict
 import logging
 
-from utils.utils import sort_box_by_score, xyxy2xywh, compute_image_blurriness, clip_bbox
+from utils.utils import *
 from base_camera import BaseCameraProcessor
 from container_info import ContainerDefectInfo
 from methods import ContainerDetector, DefectDetector
@@ -27,7 +27,6 @@ class DefectCameraProcessor(BaseCameraProcessor):
         self._setup_logging()
 
         self.depend_cameras = depend_cameras
-        self.max_frame_result = 3
 
         # setup models
         self.container_detector = ContainerDetector.get_instance(config_inference_server, config_model['container_detection'])
@@ -38,14 +37,14 @@ class DefectCameraProcessor(BaseCameraProcessor):
         self.logger = logging.getLogger(f'camera-{self.cam_id}')
         self.logger.info(f"Initializing Defect Camera Processor for camera {self.cam_id}")
         self.log_path = os.path.join(logging.getLogger().log_dir, f'camera-{self.cam_id}.log')
-        with open(self.log_path, 'w') as f:
-            f.write('')
+        clear_file(self.log_path)
 
 
     def process(self):
         self.is_running = True
         last_frame = None
         last_boxes, last_scores, last_cl_names = [], [], []
+        is_different_from_last_frame = True
         while self.is_running:
             if (not self.is_having_container() or self.frame_queue.empty()) and len(self.database) == 0:
                 time.sleep(0.05)
@@ -59,17 +58,20 @@ class DefectCameraProcessor(BaseCameraProcessor):
             timestamp, frame = frame_info['timestamp'], frame_info['frame']
 
             # check frame diff
-            if last_frame is None or self.is_frame_different(frame, last_frame):
+            # risk: if the first frame of the streak, bboxes is not detected or detected wrong -> all subsequent duplicate frame will inherit the wrong boxes
+            if last_frame is None or is_frame_different(frame, last_frame):
                 boxes, scores, cl_names = self.container_detector.predict([frame])[0]
                 last_frame = frame.copy()
                 last_boxes, last_scores, last_cl_names = boxes, scores, cl_names
+                is_different_from_last_frame = True
             else:  # frame is the same and last frame has boxes
                 boxes, scores, cl_names = last_boxes, last_scores, last_cl_names
+                is_different_from_last_frame = False
 
             # process active tracks
             tracked_ids = []
             if len(boxes) > 0:
-                tracked_ids = self._process_detections(frame, timestamp, boxes, scores)
+                tracked_ids = self._process_detections(frame, is_different_from_last_frame, timestamp, boxes, scores)
             # process inactive tracks
             inactive_ids = [id for id in self.database.keys() if id not in tracked_ids]
             self._process_inactive_tracks(inactive_ids)
@@ -78,75 +80,7 @@ class DefectCameraProcessor(BaseCameraProcessor):
         
 
 
-    def _is_frame_candidate(self, frame, timestamp, container_bbox, container_info):
-        moving_direction = container_info.moving_direction
-        if moving_direction is None:
-            return False
-        
-        # check timestamp
-        MIN_TIMESTAMP_DIFF = 0.2 # seconds
-        last_timestamp, last_image = container_info.images[-1]
-        if timestamp - last_timestamp < MIN_TIMESTAMP_DIFF:
-            return False
-        
-        xmin, ymin, xmax, ymax = container_bbox
-
-        # Hong phai sau:
-        # Logic: 
-        # + the tail of container must be quite away from the edge (with the assumption )
-        # + and not too far away from the edge
-        if self.cam_id in ['hps']:
-            if moving_direction == 'l2r':
-                return 0.12 * self.im_w <= xmin <= 0.5 * self.im_w
-            elif moving_direction == 'r2l':
-                return 0.5 * self.im_w <= xmax <= 0.88 * self.im_w
-                # return xmin < 0.1 * self.im_w and 0.5 * self.im_w <= xmax <= 1. * self.im_w  # debug
-            
-        
-        # Hong trai truoc
-        elif self.cam_id in ['htt']:
-            if moving_direction == 'l2r':  # in
-                return 0.12 * self.im_w <= xmin <= 0.4 * self.im_w
-            elif moving_direction == 'r2l':  # out
-                return xmin <= 0.12 * self.im_w and xmax >= 0.5 * self.im_w
-        
-        # Hongtraisau
-        # 
-        elif self.cam_id in ['hts']:
-            if moving_direction == 'l2r': # out
-                # we leave xmin to be far from edge to detect defect in rear side
-                return xmin <= 0.5 * self.im_w and xmax >= 0.88 * self.im_w
-            elif moving_direction == 'r2l': # in
-                # we set xmax to be really close to edge to detect defect in front side
-                return xmax <= 0.95 * self.im_w  and xmax >= 0.65 * self.im_w
-
-        # Noccongtruoc
-        elif self.cam_id in ['nct']:
-            if moving_direction == 't2b':
-                return ymin >= 0.1 * self.im_h and ymax >= 0.96 * self.im_h
-            elif moving_direction == 'b2t':
-                return ymin <= 0.15 * self.im_h and ymax >= 0.96 * self.im_h
-        
-        
-        else:
-            raise NotImplementedError(f"Camera ID {self.cam_id} not supported")
-        
-
-    def is_having_container(self):
-        """
-        Checks if all dependent cameras have detected a container.
-        """
-        return all(self.container_detected_event[cam_id].is_set() for cam_id in self.depend_cameras)
-
-
-    def _extract_defect_info(self, images):
-        """
-        Extracts defect information from a list of images.
-        """
-        return self.defect_detector.predict(images)
-
-
-    def _process_detections(self, frame, timestamp, boxes, scores):
+    def _process_detections(self, frame, is_different_from_last_frame, timestamp, boxes, scores):
         """
         Tracks objects, updates the database, and processes defect information.
         """
@@ -160,27 +94,62 @@ class DefectCameraProcessor(BaseCameraProcessor):
             obj_id = track.track_id
             tracked_ids.append(obj_id)
             bbox = clip_bbox(np.array(track.xyxy).astype(int), self.im_w, self.im_h).tolist()
-            container_info = self._update_container_history(obj_id, timestamp, bbox)
+            container_info = self._update_or_create_container(obj_id, timestamp, bbox)
 
-            if not container_info.is_done:
-                if not container_info.is_full_candidate and self._is_frame_candidate(frame, timestamp, bbox, container_info):
+            if not container_info.is_done and is_different_from_last_frame:
+                if not container_info.is_full_buffer and self._is_frame_candidate(frame, timestamp, bbox, container_info):
                     container_im = frame[bbox[1]:bbox[3], bbox[0]:bbox[2]]
-                    container_info.add_candidate_images(timestamp, container_im)
+                    container_info.add_image_to_buffer(timestamp, container_im)
 
-                if container_info.is_full_candidate:
-                    self._process_cand_images(container_info)
-                    self._finish_container_info_if_full(container_info)
-            else:
-                if (not container_info.is_pushed) and container_info.is_valid_container:
-                    if self.is_last_valid_container_pushed(container_info):
-                        self._push_info(container_info)
-
+                if container_info.is_full_buffer:
+                    self._process_image_buffer(container_info)
+                
+            if container_info.is_full_result and not container_info.is_done and container_info.is_valid_container:
+                container_info.gather_final_results()
+                container_info.is_done = True
+            
+            if container_info.is_done and not container_info.is_pushed:
+                if self.is_last_valid_container_pushed(current_container=container_info):
+                    self._push_info(container_info)
+                    # do not remove id here, otherwise the tracker will create new id for the container we've just removed
         return tracked_ids
 
 
-    def _update_container_history(self, obj_id, timestamp, bbox):
+    def _process_image_buffer(self, container_info: ContainerDefectInfo):
+        images = [im for timestamp, im in container_info.image_buffer]
+        results = self.defect_detector.predict(images)
+        for i, (boxes, scores, names) in enumerate(results):
+            if 'trailer' not in names or set(names) == {'trailer'}:
+                continue
+            timestamp, im = container_info.image_buffer[i]
+            boxes, scores, names = sort_box_by_score(boxes, scores, names)
+            trailer_bbox = boxes[names.index('trailer')]
+            _, _, iou = iou_bbox(trailer_bbox, (0, 0, im.shape[1], im.shape[0]))
+            if iou > 0.7:  # trailer bbox overlaps big with container bbox
+                resized_im = resize_image_to_height(im, min(480, im.shape[0]))
+                norm_boxes = [normalize_bbox(box, im.shape[1], im.shape[0]) for box in boxes]
+                # remove all "trailer" boxes
+                new_boxes, new_scores, new_names = [], [], []
+                for box, score, name in zip(norm_boxes, scores, names):
+                    if name != 'trailer':
+                        new_boxes.append(box)
+                        new_scores.append(score)
+                        new_names.append(name)
+                container_info.add_cand_result(resized_im, new_boxes, new_scores, new_names, timestamp)
+        
+        container_info.image_buffer = []
+        
+
+    def is_having_container(self):
+        """
+        Checks if all dependent cameras have detected a container.
+        """
+        return all(self.container_detected_event[cam_id].is_set() for cam_id in self.depend_cameras)
+
+
+    def _update_or_create_container(self, obj_id, timestamp, bbox):
         if obj_id not in self.database:
-            container_info = ContainerDefectInfo(self.cam_id, obj_id, self.fps, (self.im_w, self.im_h), self.max_frame_result)
+            container_info = ContainerDefectInfo(self.cam_id, obj_id, self.fps, (self.im_w, self.im_h))
             container_info.start_time = timestamp
             self.database[obj_id] = container_info
         else:
@@ -199,11 +168,10 @@ class DefectCameraProcessor(BaseCameraProcessor):
             'is_matched': False
         }
         self.result_queue.append(result)
-
         print_info = [el['names'] for el in container_info.info]
         with open(self.log_path, 'a') as f:
             f.write(f'--------------- Container {container_info.id} ---------------\n')
-            f.write(f'OCR Info: {print_info}\n\n')
+            f.write(f'Defect Info: {print_info}\n\n')
         container_info.is_pushed = True
     
 
@@ -217,15 +185,17 @@ class DefectCameraProcessor(BaseCameraProcessor):
             if container_info.time_since_update <= self.max_frame_lost:
                 continue
             # process for container that does not appear for a long time
-            if container_info.is_valid_container and not container_info.is_pushed:
+            if container_info.is_valid_container and not container_info.is_done:
+                if len(container_info.image_buffer) > 0:
+                    self._process_image_buffer(container_info)
+                container_info.gather_final_results()
+                container_info.is_done = True
+            
+            if container_info.is_done and not container_info.is_pushed:
                 self._push_info(container_info)
+                
             self.database.pop(id)
-            for track in self.tracker.lost_stracks:
-                if track.track_id == id:
-                    track.mark_removed()
-                    self.tracker.lost_stracks.remove(track)
-                    self.tracker.removed_stracks.append(track)
-                    break
+            self.tracker.remove_lost_track(id)
 
 
     def _log_database_state(self, timestamp, boxes):
@@ -240,10 +210,88 @@ class DefectCameraProcessor(BaseCameraProcessor):
                 f'CONTAINER {container_id}: appear: {container_info.num_appear}, '
                 f'moving_direction: {container_info.moving_direction}, '
                 f'camera_direction: {container_info.camera_direction}, '
-                f'num images: {len(container_info.images)}, '
-                f'is_full: {container_info.is_full}, is_done: {container_info.is_done}, '
+                f'num images in buffer: {len(container_info.image_buffer)}, '
+                f'num cand results: {len(container_info.cand_results)}, '
+                f'is_full: {container_info.is_full_result}, is_done: {container_info.is_done}, '
                 f'info: {print_info}'
+                f'\n'
             )
+
+
+    def _is_frame_candidate(self, frame, timestamp, container_bbox, container_info: ContainerDefectInfo):
+        """
+            heuristic check if the frame is a candidate for defect detection
+            final check (include trailer bbox and container bbox iou will happen concurrently with defect detection)
+            doing in this way to avoid having to call to defect detection model for every frame to check (do not utilize batch size)
+        """
+        moving_direction = container_info.moving_direction
+        if moving_direction is None:
+            return False
+        camera_direction = container_info.camera_direction
+        assert camera_direction in ['in', 'out']
+
+        # if timestamps are too close, skip the frame
+        MIN_TIMESTAMP_DIFF = 0.2 # seconds
+        if container_info.last_timestamp is not None and timestamp - container_info.last_timestamp < MIN_TIMESTAMP_DIFF:
+            return False
+        
+        xmin, ymin, xmax, ymax = container_bbox
+        
+        # Hong phai sau:
+        if self.cam_id in ['hps-defect']:
+            MIN_APPEAR_TIME_FROM_START = 4 # seconds. Containers often take time for the trailer to be clearly visible in the camera
+            if timestamp - container_info.start_time  < MIN_APPEAR_TIME_FROM_START:
+                return False
+            if moving_direction == 'r2l' and xmax < 0.25 * self.im_w:  # we leave the container really close to the edge to capture defect in rear side
+                return False
+            elif moving_direction == 'l2r' and xmin > 0.75 * self.im_w:
+                return False
+        
+        # Hong trai truoc
+        elif self.cam_id in ['htt-defect']:
+            if camera_direction == 'in':  # in
+                if not (0.12 * self.im_w <= xmin <= 0.4 * self.im_w): # bbox condition
+                    return False
+                MIN_APPEAR_TIME_FROM_START = 4.5
+            elif moving_direction == 'r2l':  # out
+                if not (xmin <= 0.12 * self.im_w and xmax >= 0.5 * self.im_w): # bbox condition
+                    return False
+                MIN_APPEAR_TIME_FROM_START = 1.5
+            if timestamp - container_info.start_time < MIN_APPEAR_TIME_FROM_START:  # time condition
+                return False
+        
+        # Hongtraisau
+        elif self.cam_id in ['hts-defect']:
+            if camera_direction == 'out': # out
+                MIN_APPEAR_TIME_FROM_START = 3
+                # we leave xmin to be far from edge to detect defect in rear side
+                if not (xmin <= 0.5 * self.im_w and xmax >= 0.88 * self.im_w):
+                    return False
+            elif camera_direction == 'in': # in
+                MIN_APPEAR_TIME_FROM_START = 4.5
+                # we set xmax to be really close to edge to detect defect in front side
+                if not (xmax <= 0.95 * self.im_w  and xmax >= 0.65 * self.im_w):
+                    return False
+            if timestamp - container_info.start_time < MIN_APPEAR_TIME_FROM_START:  # time condition
+                return False
+        
+        # Noccongtruoc
+        elif self.cam_id in ['nct-defect']:
+            if camera_direction == 'in':  # moving t2b
+                MIN_APPEAR_TIME_FROM_START = 5
+                if not (ymin >= 0.1 * self.im_h and ymax >= 0.96 * self.im_h):
+                    return False
+            elif camera_direction == 'out':
+                MIN_APPEAR_TIME_FROM_START = 2
+                if not (ymin <= 0.15 * self.im_h and ymax >= 0.96 * self.im_h):
+                    return False
+            if timestamp - container_info.start_time < MIN_APPEAR_TIME_FROM_START:
+                return False
+        
+        else:
+            raise NotImplementedError(f"Camera ID {self.cam_id} not supported")
+        
+        return True
 
 
     def run(self):

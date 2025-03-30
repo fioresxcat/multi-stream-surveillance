@@ -258,6 +258,19 @@ def is_frame_different(frame1, frame2, pixel_threshold=30, percent_threshold=0.0
     return non_zero_count / diff.size > percent_threshold
 
 
+def resize_image_to_height(im, new_height):
+    h, w = im.shape[:2]
+    aspect_ratio = w / h
+    new_width = int(aspect_ratio * new_height)
+    resized_image = cv2.resize(im, (new_width, new_height))
+    return resized_image
+
+
+def clear_file(fp):
+    with open(fp, 'w'):
+        pass
+
+
 if __name__ == '__main__':
     for ip in Path('temp').glob('*.png'):
         # Example usage
