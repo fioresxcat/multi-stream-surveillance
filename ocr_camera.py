@@ -165,7 +165,7 @@ class OCRCameraProcessor(BaseCameraProcessor):
 
     def _update_or_create_container(self, obj_id, timestamp, bbox):
         if obj_id not in self.database:
-            container_info = ContainerOCRInfo(self.cam_id, obj_id, self.fps, (self.im_w, self.im_h))
+            container_info = ContainerOCRInfo(self.cam_id, obj_id, self.fps, (self.im_w, self.im_h), self.skip_frame)
             container_info.start_time = timestamp
             self.database[obj_id] = container_info
         else:

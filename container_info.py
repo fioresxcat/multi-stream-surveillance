@@ -2,7 +2,7 @@ import pdb
 
 
 class BaseContainerInfo:
-    def __init__(self, cam_id, id, cam_fps, frame_size,  skip_frame: int = 1):
+    def __init__(self, cam_id, id, cam_fps, frame_size,  skip_frame):
         self.cam_id = cam_id
         self.cam_fps = cam_fps
         self.id = id
@@ -147,8 +147,8 @@ class BaseContainerInfo:
 
     
 class ContainerOCRInfo(BaseContainerInfo):
-    def __init__(self, cam_id, id, cam_fps, frame_size):
-        super().__init__(cam_id, id, cam_fps, frame_size)
+    def __init__(self, cam_id, id, cam_fps, frame_size, skip_frame):
+        super().__init__(cam_id, id, cam_fps, frame_size, skip_frame)
         self.supported_cameras = [cam_id+'-ocr' for cam_id in self.supported_cameras]
         self.info = {
             'owner_code': (None, 0),  # value, score
@@ -233,8 +233,8 @@ class ContainerOCRInfo(BaseContainerInfo):
 
 
 class ContainerDefectInfo(BaseContainerInfo):
-    def __init__(self, cam_id, id, cam_fps, frame_size):
-        super().__init__(cam_id, id, cam_fps, frame_size)
+    def __init__(self, cam_id, id, cam_fps, frame_size, skip_frame):
+        super().__init__(cam_id, id, cam_fps, frame_size, skip_frame)
         self.supported_cameras = [cam_id+'-defect' for cam_id in self.supported_cameras]
 
         self.max_final_results = 5
