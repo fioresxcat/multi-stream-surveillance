@@ -476,4 +476,3 @@ class BYTETracker:
                 track.mark_removed()
                 self.tracked_stracks.remove(track)
                 self.removed_stracks.append(track)
-                break
