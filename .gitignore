@@ -43,9 +43,12 @@ Thumbs.db
 *.mov
 *.wmv
 
+*pycache*
 test*
 temp*
 untitled*
 *.lprof
+*pycache*
+methods/*pycache*
 logs*
 *__init__*

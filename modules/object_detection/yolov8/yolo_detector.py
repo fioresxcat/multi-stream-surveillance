@@ -2,7 +2,7 @@ import pdb
 import cv2
 import numpy as np
 
-from utils.utils import total_time, sort_bbs
+from utils.utils import total_time, sort_bbs, sort_box_by_score
 from .base_object_detection import BaseObjectDetection, LetterBox
 
 
@@ -64,6 +64,8 @@ class YOLODetector(BaseObjectDetection):
                     boxes = self.scale_boxes(input_shape, boxes, orig_shape)
                     boxes = boxes.astype(np.int32)
                     class_names = [self.labels[int(class_id)] for class_id in class_ids]
+                    # sort by scores
+                    boxes, scores, class_names = sort_box_by_score(boxes, scores, class_names)
                 results[det_index] = (boxes, scores, class_names)
                     
         return results
