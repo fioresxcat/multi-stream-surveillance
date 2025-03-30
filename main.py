@@ -24,7 +24,7 @@ config_model = load_yaml('configs/config_models.yaml')
 
 # setup logging
 log_dir = 'logs'
-setup_logging(log_dir, log_file='app.log', level=logging.DEBUG, enabled_cameras=['hps'])
+setup_logging(log_dir, log_file='app.log', level=logging.DEBUG, enabled_cameras=['bst'])
 logger = logging.getLogger('main')
 
 # some constants
@@ -82,7 +82,8 @@ class ContainerProcessor:
     
     def get_frames(self):
         is_stopped = {cam_id: False for cam_id in self.caps.keys()}
-        
+        frame_indexes = {cam_id: 0 for cam_id in self.caps.keys()}
+
         # # Set the initial position of the video capture
         # for cam_id, cap in self.caps.items():
         #     cap.set(cv2.CAP_PROP_POS_MSEC, 15)
@@ -100,14 +101,14 @@ class ContainerProcessor:
                         logger.info(f"Failed to read frame from {cam_id}")
                         is_stopped[cam_id] = True
                         continue
-                frame_index = cap.get(cv2.CAP_PROP_POS_FRAMES)
-                if frame_index % self.skip_frame != 0:
+                frame_indexes[cam_id] += 1
+                if frame_indexes[cam_id] % self.skip_frame != 0:
                     continue
                 if not is_stopped[cam_id]:
                     timestamp = round(cap.get(cv2.CAP_PROP_POS_MSEC) / 1000.0, 2)  # Convert to seconds
                 else:
-                    timestamp += 1 / self.fps  # Increment timestamp to avoid duplicates
-                cam_queue.put({'timestamp': timestamp, 'frame': frame, 'frame_index': frame_index})  # notice this
+                    timestamp = frame_indexes[cam_id] / self.fps
+                cam_queue.put({'timestamp': timestamp, 'frame': frame, 'frame_index': frame_indexes[cam_id]})  # notice this
 
 
 
@@ -194,24 +195,26 @@ class ContainerProcessor:
 def main():
     fps = 25
     video_sources = {
-        'htt-ocr': 'test_files/hongtraitruoc-cut610_longer.mp4',
-        'hts-ocr': 'test_files/hongtraisau-cut610_longer.mp4',
-        'hps-defect': 'test_files/hongphaisau-cut610_longer.mp4',
-        'htt-defect': 'test_files/hongtraitruoc-cut610_longer.mp4',
-        'hts-defect': 'test_files/hongtraisau-cut610_longer.mp4',
+        # 'htt-ocr': 'test_files/hongtraitruoc-cut610_longer.mp4',
+        # 'hts-ocr': 'test_files/hongtraisau-cut610_longer.mp4',
+        # 'hps-defect': 'test_files/hongphaisau-cut610_longer.mp4',
+        # 'htt-defect': 'test_files/hongtraitruoc-cut610_longer.mp4',
+        # 'hts-defect': 'test_files/hongtraisau-cut610_longer.mp4',
 
-        # 'hps': 'test_files/hongphaisau-21032025-cut1.mp4',
-        # 'bst': 'test_files/biensotruoc-21032025-cut1.mp4',
-        # 'bss': 'test_files/biensosau-21032025-cut1.mp4',
+        'hps-defect': 'test_files/hongphaisau-21032025-cut1.mp4',
+        'bst-ocr': 'test_files/biensotruoc-21032025-cut1.mp4',
+        'bss-ocr': 'test_files/biensosau-21032025-cut1.mp4',
     }
     ocr_cams = [
-        'htt-ocr', 
-        'hts-ocr'
+        # 'htt-ocr', 
+        # 'hts-ocr',
+        'bst-ocr',
+        'bss-ocr'
     ]
     defect_cams = [
         'hps-defect', 
-        'htt-defect', 
-        'hts-defect'
+        # 'htt-defect', 
+        # 'hts-defect',
     ]
     skip_frame = int(0.15*fps) # num frames
     processor = ContainerProcessor(video_sources, fps, skip_frame, ocr_cams, defect_cams)

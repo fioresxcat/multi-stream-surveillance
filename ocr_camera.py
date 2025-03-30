@@ -40,7 +40,9 @@ class OCRCameraProcessor(BaseCameraProcessor):
     def _setup_logging(self):
         self.logger = logging.getLogger(f'camera-{self.cam_id}')
         self.logger.info(f"Initializing OCR Camera Processor for camera {self.cam_id}")
-        self.log_path = os.path.join(logging.getLogger().log_dir, f'camera-{self.cam_id}.log')
+        self.log_dir = os.path.join(logging.getLogger().log_dir, f'camera-{self.cam_id}')
+        os.makedirs(self.log_dir, exist_ok=True)
+        self.log_path = os.path.join(self.log_dir, 'log.log')
         clear_file(self.log_path)
 
 

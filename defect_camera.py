@@ -36,7 +36,9 @@ class DefectCameraProcessor(BaseCameraProcessor):
     def _setup_logging(self):
         self.logger = logging.getLogger(f'camera-{self.cam_id}')
         self.logger.info(f"Initializing Defect Camera Processor for camera {self.cam_id}")
-        self.log_path = os.path.join(logging.getLogger().log_dir, f'camera-{self.cam_id}.log')
+        self.log_dir = os.path.join(logging.getLogger().log_dir, f'camera-{self.cam_id}')
+        os.makedirs(self.log_dir, exist_ok=True)
+        self.log_path = os.path.join(self.log_dir, 'log.log')
         clear_file(self.log_path)
 
 
@@ -48,10 +50,12 @@ class DefectCameraProcessor(BaseCameraProcessor):
         while self.is_running:
             if (not self.is_having_container() or self.frame_queue.empty()) and len(self.database) == 0:
                 time.sleep(0.05)
+                self.logger.debug('skipping 1')
                 continue
 
             frame_info = self._get_next_frame()
             if not frame_info:
+                self.logger.debug('skipping 2')
                 continue
 
             self.frame_cnt += 1
@@ -64,7 +68,7 @@ class DefectCameraProcessor(BaseCameraProcessor):
                 last_frame = frame.copy()
                 last_boxes, last_scores, last_cl_names = boxes, scores, cl_names
                 is_different_from_last_frame = True
-            else:  # frame is the same and last frame has boxes
+            else:  # frame is the same
                 boxes, scores, cl_names = last_boxes, last_scores, last_cl_names
                 is_different_from_last_frame = False
 
@@ -118,10 +122,19 @@ class DefectCameraProcessor(BaseCameraProcessor):
     def _process_image_buffer(self, container_info: ContainerDefectInfo):
         images = [im for timestamp, im in container_info.image_buffer]
         results = self.defect_detector.predict(images)
+        log_dir = os.path.join(self.log_dir, 'image_buffer')
+        os.makedirs(log_dir, exist_ok=True)
         for i, (boxes, scores, names) in enumerate(results):
+            timestamp, im = container_info.image_buffer[i]
+            # logging
+            draw_im = im.copy()
+            for box, score, name in zip(boxes, scores, names):
+                cv2.rectangle(draw_im, (int(box[0]), int(box[1])), (int(box[2]), int(box[3])), (255, 0, 0), 2)
+                cv2.putText(draw_im, f'{name}-{score:.2f}', (int(box[0]), int(box[1] - 5)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
+            cv2.imwrite(os.path.join(log_dir, f'container_{container_info.id}-{timestamp}.jpg'), draw_im)
+
             if 'trailer' not in names or set(names) == {'trailer'}:
                 continue
-            timestamp, im = container_info.image_buffer[i]
             boxes, scores, names = sort_box_by_score(boxes, scores, names)
             trailer_bbox = boxes[names.index('trailer')]
             _, _, iou = iou_bbox(trailer_bbox, (0, 0, im.shape[1], im.shape[0]))
@@ -136,7 +149,7 @@ class DefectCameraProcessor(BaseCameraProcessor):
                         new_scores.append(score)
                         new_names.append(name)
                 container_info.add_cand_result(resized_im, new_boxes, new_scores, new_names, timestamp)
-        
+            
         container_info.image_buffer = []
         
 

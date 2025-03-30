@@ -241,7 +241,7 @@ class ContainerDefectInfo(BaseContainerInfo):
         self.max_cand_results = 50
         self.cand_results = []
         self.info = []
-        self.max_image_buffer_size = 10  # ideally multiple of defect detector batch size
+        self.max_image_buffer_size = 5  # ideally multiple of defect detector batch size
         self.image_buffer = []
         self.is_done = False
         self.last_timestamp = None

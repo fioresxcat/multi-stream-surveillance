@@ -248,7 +248,7 @@ def clip_bbox(bbox: np.ndarray, im_w, im_h):
     return bbox
 
 
-def is_frame_different(frame1, frame2, pixel_threshold=30, percent_threshold=0.02):
+def is_frame_different(frame1, frame2, pixel_threshold=30, percent_threshold=0.01):
     frame1 = cv2.resize(frame1, (frame1.shape[1]//3, frame1.shape[0]//3))
     frame2 = cv2.resize(frame2, (frame2.shape[1]//3, frame2.shape[0]//3))
     diff = cv2.absdiff(frame1, frame2)
