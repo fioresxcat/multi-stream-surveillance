@@ -20,25 +20,15 @@ from methods import ContainerDetector, DefectDetector
 
 
 class DefectCameraProcessor(BaseCameraProcessor):
-    def __init__(self, cam_id, fps, frame_size: tuple, skip_frame: int, 
-                 frame_queue: Queue, result_queue: deque, container_detected_event: Dict, 
+    def __init__(self, cam_id, cam_src, skip_time: int, 
+                 result_queue: deque, container_detected_event: Dict, 
                  depend_cameras: List[str], config_inference_server: dict, config_model: dict):
-        super().__init__(cam_id, fps, frame_size, skip_frame, frame_queue, result_queue, container_detected_event)
-
+        super().__init__(cam_id, cam_src, skip_time, result_queue, container_detected_event)
         self.depend_cameras = depend_cameras
 
         # setup models
         self.container_detector = ContainerDetector.get_instance(config_inference_server, config_model['container_detection'])
         self.defect_detector = DefectDetector.get_instance(config_inference_server, config_model['container_defect_detection'])
-
-
-    def _setup_logging(self):
-        self.logger = logging.getLogger(f'camera-{self.cam_id}')
-        self.logger.info(f"Initializing Defect Camera Processor for camera {self.cam_id}")
-        self.log_dir = os.path.join(logging.getLogger().log_dir, f'camera-{self.cam_id}')
-        os.makedirs(self.log_dir, exist_ok=True)
-        self.log_path = os.path.join(self.log_dir, 'log.log')
-        clear_file(self.log_path)
 
 
     def process(self):
@@ -75,6 +65,10 @@ class DefectCameraProcessor(BaseCameraProcessor):
             tracked_ids = []
             if len(boxes) > 0:
                 tracked_ids = self._process_detections(frame, is_different_from_last_frame, timestamp, boxes, scores)
+            else:
+                self.tracker.frame_id += 1
+                self.tracker.remove_tracked_track_if_needed()
+
             # process inactive tracks
             inactive_ids = [id for id in self.database.keys() if id not in tracked_ids]
             self._process_inactive_tracks(inactive_ids)
@@ -156,7 +150,7 @@ class DefectCameraProcessor(BaseCameraProcessor):
         """
         Checks if all dependent cameras have detected a container.
         """
-        return all(self.container_detected_event[cam_id].is_set() for cam_id in self.depend_cameras)
+        return all(self.container_detected_event[cam_id] for cam_id in self.depend_cameras)
 
 
     def _update_or_create_container(self, obj_id, timestamp, bbox):
@@ -179,7 +173,7 @@ class DefectCameraProcessor(BaseCameraProcessor):
             'info': container_info.info,
             'is_matched': False
         }
-        self.result_queue.append(result)
+        self.result_queue.put(result)
         print_info = [el['names'] for el in container_info.info]
         with open(self.log_path, 'a') as f:
             f.write(f'--------------- Container {container_info.id} ---------------\n')
@@ -307,4 +301,13 @@ class DefectCameraProcessor(BaseCameraProcessor):
 
 
     def run(self):
-        self.process()
+        self.is_running = True
+        threads = [
+            threading.Thread(target=self.get_frames, daemon=True),
+            threading.Thread(target=self.process, daemon=True)
+        ]
+        for thread in threads:
+            thread.start()
+            self.logger.debug(f'thread {thread.name} started')
+        for thread in threads:
+            thread.join()

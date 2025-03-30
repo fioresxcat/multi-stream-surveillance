@@ -73,6 +73,10 @@ class BaseCameraProcessor:
         os.makedirs(self.log_dir, exist_ok=True)
         self.log_path = os.path.join(self.log_dir, 'log.log')
         clear_file(self.log_path)
+        if 'defect' in self.cam_id:
+            image_log_dir = os.path.join(self.log_dir, 'image_buffer')
+            for fn in os.listdir(image_log_dir):
+                os.remove(os.path.join(image_log_dir, fn))
 
 
     def _get_next_frame(self):

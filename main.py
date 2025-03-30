@@ -25,7 +25,7 @@ config_model = load_yaml('configs/config_models.yaml')
 
 # setup logging
 log_dir = 'logs'
-setup_logging(log_dir, log_file='app.log', level=logging.DEBUG, enabled_cameras=['hts'])
+setup_logging(log_dir, log_file='app.log', level=logging.DEBUG, enabled_cameras=['hps'])
 logger = logging.getLogger('main')
 
 # some constants
@@ -162,7 +162,7 @@ def main():
     video_sources = {
         'htt-ocr': 'test_files/hongtraitruoc-cut611.mp4',
         'hts-ocr': 'test_files/hongtraisau-cut611.mp4',
-        # 'hps-defect': 'test_files/hongphaisau-cut610_longer.mp4',
+        'hps-defect': 'test_files/hongphaisau-cut611.mp4',
         # 'htt-defect': 'test_files/hongtraitruoc-cut610_longer.mp4',
         # 'hts-defect': 'test_files/hongtraisau-cut610_longer.mp4',
 
@@ -177,7 +177,7 @@ def main():
         # 'bss-ocr'
     ]
     defect_cams = [
-        # 'hps-defect', 
+        'hps-defect', 
         # 'htt-defect', 
         # 'hts-defect',
     ]
