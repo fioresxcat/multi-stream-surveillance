@@ -10,10 +10,10 @@ from typing_extensions import List, Dict, Tuple, Union, Any, Literal
 from collections import deque, OrderedDict
 from easydict import EasyDict
 import queue
-
+import logging
 
 from modules.trackers import BYTETracker, BOTSORT
-from utils.utils import sort_box_by_score, xyxy2xywh, compute_image_blurriness, clip_bbox
+from utils.utils import sort_box_by_score, xyxy2xywh, compute_image_blurriness, clip_bbox, clear_file
 from container_info import BaseContainerInfo, ContainerOCRInfo, ContainerDefectInfo
 
 
@@ -38,37 +38,88 @@ TRACKER_ARGS = EasyDict({
     "fps": "${camera.fps}"
 })
 
+CAMERA_MODE = 'video'
+
 
 class BaseCameraProcessor:
-    def __init__(self, cam_id, cap: cv2.VideoCapture, skip_time: float,
+    def __init__(self, cam_id, cam_src: str, skip_time: float,
                  result_queue: deque, container_detected_event: Dict):
         self.cam_id = cam_id
-        self.cap = cap
-        self.fps = cap.get(cv2.CAP_PROP_FPS)
-        self.im_w, self.im_h = cap.get(cv2.CAP_PROP_FRAME_WIDTH), cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
-        self.skip_frame = int(skip_time * self.fps)
+        self.cam_src = cam_src
+        self.skip_time = skip_time
         self.result_queue = result_queue
         self.container_detected_event = container_detected_event
         self.database = OrderedDict()
         self.frame_cnt = 0
         self.is_running = False
 
+        self._setup_logging()
         # setup tracker
+        self.fps = 25
+        self.skip_frame = 4
         self.max_time_lost = 1.5 # seconds
         self.max_frame_lost = int(self.max_time_lost * self.fps) / self.skip_frame
         self.tracker = BOTSORT(args=TRACKER_ARGS, max_frame_lost=self.max_frame_lost)
         self.tracker.reset()
 
         # frame queue
-        self.frame_queue = queue.Queue(maxsize=30)
+        self.frame_queue = queue.Queue(maxsize=10)
 
 
-    
+    def _setup_logging(self):
+        self.logger = logging.getLogger(f'camera-{self.cam_id}')
+        self.logger.info(f"Initializing Camera Processor for camera {self.cam_id}")
+        self.log_dir = os.path.join(logging.getLogger().log_dir, f'camera-{self.cam_id}')
+        os.makedirs(self.log_dir, exist_ok=True)
+        self.log_path = os.path.join(self.log_dir, 'log.log')
+        clear_file(self.log_path)
+
+
     def _get_next_frame(self):
         try:
             return self.frame_queue.get(block=True, timeout=0.1)
         except Exception:
             return None
+        
+
+    def get_frames(self):
+        self.cap = cv2.VideoCapture(self.cam_src)
+        self.fps = self.cap.get(cv2.CAP_PROP_FPS)
+        self.im_w, self.im_h = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        self.skip_frame = int(self.skip_time * self.fps)
+
+        is_stopped = False
+        frame_index = 0
+
+        # # Set the initial position of the video capture
+        # for cam_id, cap in self.caps.items():
+        #     cap.set(cv2.CAP_PROP_POS_MSEC, 15)
+
+        while self.is_running:
+            # self.logger.debug('reading frames ...')
+            if CAMERA_MODE == 'video' and self.frame_queue.full():  # if mode is video, process all frames
+                time.sleep(0.05)
+                # self.logger.debug('frame queue is full, continue')
+                continue
+            if is_stopped:
+                frame = np.full((self.im_h, self.im_w, 3), 255, dtype=np.uint8)
+            else:
+                # self.logger.debug('about to read frame ...')
+                # pdb.set_trace()
+                ret, frame = self.cap.read()
+                if not ret:
+                    self.logger.info(f"Failed to read frame from {self.cam_id}")
+                    is_stopped = True
+                    continue
+            frame_index += 1
+            if frame_index % self.skip_frame != 0:
+                continue
+            if not is_stopped:
+                timestamp = round(self.cap.get(cv2.CAP_PROP_POS_MSEC) / 1000.0, 2)  # Convert to seconds
+            else:
+                timestamp = frame_index / self.fps
+            # self.logger.debug('prepare to push ...')
+            self.frame_queue.put({'timestamp': timestamp, 'frame': frame, 'frame_index': frame_index})  # notice this
 
     
     def is_last_valid_container_pushed(self, current_container: BaseContainerInfo):

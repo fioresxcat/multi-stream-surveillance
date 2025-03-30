@@ -25,7 +25,7 @@ config_model = load_yaml('configs/config_models.yaml')
 
 # setup logging
 log_dir = 'logs'
-setup_logging(log_dir, log_file='app.log', level=logging.DEBUG, enabled_cameras=['bst'])
+setup_logging(log_dir, log_file='app.log', level=logging.DEBUG, enabled_cameras=['htt'])
 logger = logging.getLogger('main')
 
 # some constants
@@ -41,7 +41,7 @@ class ContainerProcessor:
         self.container_count = 0
 
         self.manager = multiprocessing.Manager()
-        self.container_detected_event = self.manager.dict({cam_id: multiprocessing.Event() for cam_id in video_sources.keys()})
+        self.container_detected_event = self.manager.dict({cam_id: False for cam_id in video_sources.keys()})
 
         # Modularized setup
         self._setup_queues(video_sources)
@@ -53,57 +53,25 @@ class ContainerProcessor:
         self.defect_results_queue = {cam_id: self.manager.Queue() for cam_id in self.defect_cams}
 
 
+
     def _setup_processors(self, video_sources):
         self.ocr_camera_processors = {}
         for cam_id in self.ocr_cams:
-            cap = cv2.VideoCapture(video_sources[cam_id])
+            cam_src = video_sources[cam_id]
             self.ocr_camera_processors[cam_id] = OCRCameraProcessor(
-                cam_id, cap, self.skip_time, 
+                cam_id, cam_src, self.skip_time, 
                 self.ocr_results_queues[cam_id], self.container_detected_event, 
                 config_inference_server, config_model
             )
 
         self.defect_camera_processors = {}
         for cam_id in self.defect_cams:
-            cap = cv2.VideoCapture(video_sources[cam_id])
+            cam_src = video_sources[cam_id]
             self.defect_camera_processors[cam_id] = DefectCameraProcessor(
-                cam_id, cap, self.skip_time, 
+                cam_id, cam_src, self.skip_time, 
                 self.defect_results_queue[cam_id], self.container_detected_event, 
                 self.ocr_cams, config_inference_server, config_model
             )
-
-
-    
-    def get_frames(self):
-        is_stopped = {cam_id: False for cam_id in self.caps.keys()}
-        frame_indexes = {cam_id: 0 for cam_id in self.caps.keys()}
-
-        # # Set the initial position of the video capture
-        # for cam_id, cap in self.caps.items():
-        #     cap.set(cv2.CAP_PROP_POS_MSEC, 15)
-
-        while self.is_running:
-            for cam_id, cap in self.caps.items():
-                cam_queue: Queue = self.frame_queues[cam_id]
-                if CAMERA_MODE == 'video' and cam_queue.full():  # if mode is video, process all frames
-                    continue
-                if is_stopped[cam_id]:
-                    frame = np.full((self.frame_sizes[cam_id][1], self.frame_sizes[cam_id][0], 3), 255, dtype=np.uint8)
-                else:
-                    ret, frame = cap.read()
-                    if not ret:
-                        logger.info(f"Failed to read frame from {cam_id}")
-                        is_stopped[cam_id] = True
-                        continue
-                frame_indexes[cam_id] += 1
-                if frame_indexes[cam_id] % self.skip_time != 0:
-                    continue
-                if not is_stopped[cam_id]:
-                    timestamp = round(cap.get(cv2.CAP_PROP_POS_MSEC) / 1000.0, 2)  # Convert to seconds
-                else:
-                    timestamp = frame_indexes[cam_id] / self.fps
-                cam_queue.put({'timestamp': timestamp, 'frame': frame, 'frame_index': frame_indexes[cam_id]})  # notice this
-
 
 
     def match_results(self):
@@ -164,13 +132,12 @@ class ContainerProcessor:
 
     def stop(self):
         self.is_running = False
-        for cam_id, cap in self.caps.items():
-            cap.release()
 
 
     def run(self):
         self.is_running = True
-
+        # multiprocessing.set_start_method("spawn", force=True)
+        
         processes = []
         processes.extend(Process(target=processor.run) for processor in self.ocr_camera_processors.values())
         processes.extend(Process(target=processor.run) for processor in self.defect_camera_processors.values())
@@ -179,11 +146,11 @@ class ContainerProcessor:
 
         for process in processes:
             process.start()
-        for process in processes:
-            process.join()
-
         for thread in threads:
             thread.start()
+
+        for process in processes:
+            process.join()
         for thread in threads:
             thread.join()
 
@@ -214,8 +181,8 @@ def main():
         # 'htt-defect', 
         # 'hts-defect',
     ]
-    skip_frame = int(0.15*fps) # num frames
-    processor = ContainerProcessor(video_sources, fps, skip_frame, ocr_cams, defect_cams)
+    skip_time = 0.15 # seconds
+    processor = ContainerProcessor(video_sources, skip_time, ocr_cams, defect_cams)
     processor.run()
     processor.stop()
 

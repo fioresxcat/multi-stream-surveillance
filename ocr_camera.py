@@ -22,11 +22,10 @@ from base_camera import BaseCameraProcessor
 
 
 class OCRCameraProcessor(BaseCameraProcessor):
-    def __init__(self, cam_id, cap: cv2.VideoCapture, skip_time: float,
+    def __init__(self, cam_id, cam_src: str, skip_time: float,
                  result_queue, container_detected_event: dict, 
                  config_inference_server: dict, config_model: dict):
-        super().__init__(cam_id, cap, skip_time, result_queue, container_detected_event)
-        self._setup_logging()
+        super().__init__(cam_id, cam_src, skip_time, result_queue, container_detected_event)
 
         # setup models
         self.container_detector = ContainerDetector.get_instance(config_inference_server, config_model['container_detection'])
@@ -39,17 +38,7 @@ class OCRCameraProcessor(BaseCameraProcessor):
         self.min_appearance_to_count_as_detected = 0.5  # seconds
 
 
-    def _setup_logging(self):
-        self.logger = logging.getLogger(f'camera-{self.cam_id}')
-        self.logger.info(f"Initializing OCR Camera Processor for camera {self.cam_id}")
-        self.log_dir = os.path.join(logging.getLogger().log_dir, f'camera-{self.cam_id}')
-        os.makedirs(self.log_dir, exist_ok=True)
-        self.log_path = os.path.join(self.log_dir, 'log.log')
-        clear_file(self.log_path)
-
-
     def process(self):
-        self.is_running = True
         last_frame = None
         last_boxes, last_scores, last_cl_names = [], [], []
         while self.is_running:
@@ -76,8 +65,8 @@ class OCRCameraProcessor(BaseCameraProcessor):
             inactive_ids = [id for id in self.database.keys() if id not in tracked_ids]
             self._process_inactive_tracks(inactive_ids)
             # clear event
-            if len(self.database) == 0 and self.container_detected_event[self.cam_id].is_set():
-                self.container_detected_event[self.cam_id].clear()
+            if len(self.database) == 0 and self.container_detected_event[self.cam_id]:
+                self.container_detected_event[self.cam_id] = False
             # log database state
             self._log_database_state(timestamp, boxes)
 
@@ -163,8 +152,8 @@ class OCRCameraProcessor(BaseCameraProcessor):
                 else:
                     container_info.update_info({}) # if container detected but cannot extract info, still increase info_time_since_update
             # set container detected event
-            if container_info.num_appear >= self.min_appearance_to_count_as_detected and not self.container_detected_event[self.cam_id].is_set():
-                self.container_detected_event[self.cam_id].set()
+            if container_info.num_appear >= self.min_appearance_to_count_as_detected and not self.container_detected_event[self.cam_id]:
+                self.container_detected_event[self.cam_id] = True
             # push result to queue if needed
             if container_info.is_done and (not container_info.is_pushed) and container_info.is_valid_container:
                 if self.is_last_valid_container_pushed(container_info):
@@ -194,7 +183,7 @@ class OCRCameraProcessor(BaseCameraProcessor):
             'info': container_info.info,
             'is_matched': False
         }
-        self.result_queue.append(result)
+        self.result_queue.put(result)
         with open(self.log_path, 'a') as f:
             f.write(f'--------------- Container {container_info.id} ---------------\n')
             f.write(f'OCR Info: {container_info.info}\n\n')
@@ -275,4 +264,13 @@ class OCRCameraProcessor(BaseCameraProcessor):
         
 
     def run(self):
-        self.process()
+        self.is_running = True
+        threads = [
+            threading.Thread(target=self.get_frames, daemon=True),
+            threading.Thread(target=self.process, daemon=True)
+        ]
+        for thread in threads:
+            thread.start()
+            self.logger.debug(f'thread {thread.name} started')
+        for thread in threads:
+            thread.join()

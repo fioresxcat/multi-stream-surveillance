@@ -24,7 +24,6 @@ class DefectCameraProcessor(BaseCameraProcessor):
                  frame_queue: Queue, result_queue: deque, container_detected_event: Dict, 
                  depend_cameras: List[str], config_inference_server: dict, config_model: dict):
         super().__init__(cam_id, fps, frame_size, skip_frame, frame_queue, result_queue, container_detected_event)
-        self._setup_logging()
 
         self.depend_cameras = depend_cameras
 
