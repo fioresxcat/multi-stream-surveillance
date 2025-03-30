@@ -49,8 +49,8 @@ class ContainerProcessor:
 
 
     def _setup_queues(self, video_sources):
-        self.ocr_results_queues = {cam_id: self.manager.Queue() for cam_id in self.ocr_cams}
-        self.defect_results_queue = {cam_id: self.manager.Queue() for cam_id in self.defect_cams}
+        self.ocr_results_queues = self.manager.dict({cam_id: self.manager.Queue() for cam_id in self.ocr_cams})
+        self.defect_results_queue = self.manager.dict({cam_id: self.manager.Queue() for cam_id in self.defect_cams})
 
 
 

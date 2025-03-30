@@ -57,7 +57,7 @@ class OCRCameraProcessor(BaseCameraProcessor):
                 last_boxes, last_scores, last_cl_names = boxes, scores, cl_names
             else:  # frame is the same and last frame has boxes
                 boxes, scores, cl_names = last_boxes, last_scores, last_cl_names
-
+            
             tracked_ids = []
             if len(boxes) > 0:
                 tracked_ids = self._process_detections(frame, timestamp, boxes, scores)
