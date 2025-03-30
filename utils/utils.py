@@ -11,8 +11,6 @@ import numpy as np
 from datetime import datetime
 from PIL import Image
 from io import BytesIO
-import tempfile
-import jpegio
 
 
 env_pattern = re.compile(r".*?\${(.*?)}.*?")

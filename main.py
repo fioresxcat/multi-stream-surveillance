@@ -8,9 +8,10 @@ from easydict import EasyDict
 import time
 import logging
 import yaml
-from queue import Queue
 from collections import deque
 from typing_extensions import List, Dict, Tuple, Optional, Literal, Any
+import multiprocessing
+from multiprocessing import Process, Queue, Event, Manager
 
 from utils.utils import load_yaml
 from utils.logging_config import setup_logging
@@ -31,51 +32,44 @@ logger = logging.getLogger('main')
 CAMERA_MODE = 'video' # 'video' or 'stream'
 
 class ContainerProcessor:
-    def __init__(self, video_sources: dict, fps: int, skip_frame: int, ocr_cams: List[str], defect_cams: List[str]):
-        self.fps = fps
-        self.skip_frame = skip_frame
+    def __init__(self, video_sources: dict, skip_time: float, ocr_cams: List[str], defect_cams: List[str]):
+        self.skip_time = skip_time
         self.ocr_cams = ocr_cams
         self.defect_cams = defect_cams
-        self.container_detected_event = {cam_id: threading.Event() for cam_id in video_sources.keys()}
         self.is_running = False
         self.final_results = []
         self.container_count = 0
 
+        self.manager = multiprocessing.Manager()
+        self.container_detected_event = self.manager.dict({cam_id: multiprocessing.Event() for cam_id in video_sources.keys()})
+
         # Modularized setup
-        self._setup_captures(video_sources)
         self._setup_queues(video_sources)
         self._setup_processors(video_sources)
 
 
-    def _setup_captures(self, video_sources):
-        self.caps = {cam_id: cv2.VideoCapture(cam_source) for cam_id, cam_source in video_sources.items()}
-        self.frame_sizes = {
-            cam_id: (int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)))
-            for cam_id, cap in self.caps.items()
-        }
-
-
     def _setup_queues(self, video_sources):
-        self.frame_queues = {cam_id: Queue(maxsize=10) for cam_id in video_sources.keys()}
-        self.ocr_results_queues = {cam_id: deque() for cam_id in self.ocr_cams}
-        self.defect_results_queue = {cam_id: deque() for cam_id in self.defect_cams}
+        self.ocr_results_queues = {cam_id: self.manager.Queue() for cam_id in self.ocr_cams}
+        self.defect_results_queue = {cam_id: self.manager.Queue() for cam_id in self.defect_cams}
 
 
     def _setup_processors(self, video_sources):
         self.ocr_camera_processors = {}
         for cam_id in self.ocr_cams:
+            cap = cv2.VideoCapture(video_sources[cam_id])
             self.ocr_camera_processors[cam_id] = OCRCameraProcessor(
-                cam_id, self.fps, self.frame_sizes[cam_id], self.skip_frame, 
-                self.frame_queues[cam_id], self.ocr_results_queues[cam_id], 
-                self.container_detected_event, config_inference_server, config_model
+                cam_id, cap, self.skip_time, 
+                self.ocr_results_queues[cam_id], self.container_detected_event, 
+                config_inference_server, config_model
             )
 
         self.defect_camera_processors = {}
         for cam_id in self.defect_cams:
+            cap = cv2.VideoCapture(video_sources[cam_id])
             self.defect_camera_processors[cam_id] = DefectCameraProcessor(
-                cam_id, self.fps, self.frame_sizes[cam_id], self.skip_frame, 
-                self.frame_queues[cam_id], self.defect_results_queue[cam_id], 
-                self.container_detected_event, self.ocr_cams, config_inference_server, config_model
+                cam_id, cap, self.skip_time, 
+                self.defect_results_queue[cam_id], self.container_detected_event, 
+                self.ocr_cams, config_inference_server, config_model
             )
 
 
@@ -102,7 +96,7 @@ class ContainerProcessor:
                         is_stopped[cam_id] = True
                         continue
                 frame_indexes[cam_id] += 1
-                if frame_indexes[cam_id] % self.skip_frame != 0:
+                if frame_indexes[cam_id] % self.skip_time != 0:
                     continue
                 if not is_stopped[cam_id]:
                     timestamp = round(cap.get(cv2.CAP_PROP_POS_MSEC) / 1000.0, 2)  # Convert to seconds
@@ -114,13 +108,13 @@ class ContainerProcessor:
 
     def match_results(self):
         def _queues_are_empty():
-            return any(len(queue) == 0 for queue in self.ocr_results_queues.values()) or \
-                any(len(queue) == 0 for queue in self.defect_results_queue.values())
+            return any(queue.empty() for queue in self.ocr_results_queues.values()) or \
+                any(queue.empty() for queue in self.defect_results_queue.values())
         
-        def _collect_results(results_queues):
+        def _collect_results(results_queues: List[Queue]):
             results = []
             for queue in results_queues.values():
-                results.append(queue.popleft())
+                results.append(queue.get())
             return results
 
         def _combine_info(ocr_results, defect_results):
@@ -177,15 +171,19 @@ class ContainerProcessor:
     def run(self):
         self.is_running = True
 
-        threads = []
-        threads.append(threading.Thread(target=self.get_frames, daemon=True))
-        threads.extend(threading.Thread(target=processor.run, daemon=True) for processor in self.ocr_camera_processors.values())
-        threads.extend(threading.Thread(target=processor.run, daemon=True) for processor in self.defect_camera_processors.values())
-        threads.append(threading.Thread(target=self.match_results, daemon=True))
+        processes = []
+        processes.extend(Process(target=processor.run) for processor in self.ocr_camera_processors.values())
+        processes.extend(Process(target=processor.run) for processor in self.defect_camera_processors.values())
+
+        threads = [threading.Thread(target=self.match_results, daemon=True)]
+
+        for process in processes:
+            process.start()
+        for process in processes:
+            process.join()
 
         for thread in threads:
             thread.start()
-
         for thread in threads:
             thread.join()
 
@@ -195,24 +193,24 @@ class ContainerProcessor:
 def main():
     fps = 25
     video_sources = {
-        # 'htt-ocr': 'test_files/hongtraitruoc-cut610_longer.mp4',
-        # 'hts-ocr': 'test_files/hongtraisau-cut610_longer.mp4',
+        'htt-ocr': 'test_files/hongtraitruoc-cut610_longer.mp4',
+        'hts-ocr': 'test_files/hongtraisau-cut610_longer.mp4',
         # 'hps-defect': 'test_files/hongphaisau-cut610_longer.mp4',
         # 'htt-defect': 'test_files/hongtraitruoc-cut610_longer.mp4',
         # 'hts-defect': 'test_files/hongtraisau-cut610_longer.mp4',
 
-        'hps-defect': 'test_files/hongphaisau-21032025-cut1.mp4',
-        'bst-ocr': 'test_files/biensotruoc-21032025-cut1.mp4',
-        'bss-ocr': 'test_files/biensosau-21032025-cut1.mp4',
+        # 'hps-defect': 'test_files/hongphaisau-21032025-cut1.mp4',
+        # 'bst-ocr': 'test_files/biensotruoc-21032025-cut1.mp4',
+        # 'bss-ocr': 'test_files/biensosau-21032025-cut1.mp4',
     }
     ocr_cams = [
-        # 'htt-ocr', 
-        # 'hts-ocr',
-        'bst-ocr',
-        'bss-ocr'
+        'htt-ocr', 
+        'hts-ocr',
+        # 'bst-ocr',
+        # 'bss-ocr'
     ]
     defect_cams = [
-        'hps-defect', 
+        # 'hps-defect', 
         # 'htt-defect', 
         # 'hts-defect',
     ]

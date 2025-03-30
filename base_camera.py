@@ -8,8 +8,11 @@ from line_profiler import profile
 from queue import Queue
 from typing_extensions import List, Dict, Tuple, Union, Any, Literal
 from collections import deque, OrderedDict
-from modules.trackers import BYTETracker, BOTSORT
 from easydict import EasyDict
+import queue
+
+
+from modules.trackers import BYTETracker, BOTSORT
 from utils.utils import sort_box_by_score, xyxy2xywh, compute_image_blurriness, clip_bbox
 from container_info import BaseContainerInfo, ContainerOCRInfo, ContainerDefectInfo
 
@@ -37,13 +40,13 @@ TRACKER_ARGS = EasyDict({
 
 
 class BaseCameraProcessor:
-    def __init__(self, cam_id, fps, frame_size: tuple, skip_frame: int,
-                 frame_queue: Queue, result_queue: deque, container_detected_event: Dict):
+    def __init__(self, cam_id, cap: cv2.VideoCapture, skip_time: float,
+                 result_queue: deque, container_detected_event: Dict):
         self.cam_id = cam_id
-        self.fps = fps
-        self.im_w, self.im_h = frame_size
-        self.skip_frame = skip_frame
-        self.frame_queue = frame_queue
+        self.cap = cap
+        self.fps = cap.get(cv2.CAP_PROP_FPS)
+        self.im_w, self.im_h = cap.get(cv2.CAP_PROP_FRAME_WIDTH), cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
+        self.skip_frame = int(skip_time * self.fps)
         self.result_queue = result_queue
         self.container_detected_event = container_detected_event
         self.database = OrderedDict()
@@ -52,9 +55,13 @@ class BaseCameraProcessor:
 
         # setup tracker
         self.max_time_lost = 1.5 # seconds
-        self.max_frame_lost = int(self.max_time_lost * fps) / self.skip_frame
+        self.max_frame_lost = int(self.max_time_lost * self.fps) / self.skip_frame
         self.tracker = BOTSORT(args=TRACKER_ARGS, max_frame_lost=self.max_frame_lost)
         self.tracker.reset()
+
+        # frame queue
+        self.frame_queue = queue.Queue(maxsize=30)
+
 
     
     def _get_next_frame(self):

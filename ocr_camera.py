@@ -10,6 +10,8 @@ from typing_extensions import List, Dict, Tuple, Union, Any, Literal
 from collections import deque
 from easydict import EasyDict
 import logging
+from multiprocessing import Process, Queue, Event, Manager
+import queue
 
 from modules.trackers import BYTETracker, BOTSORT
 from utils.utils import *
@@ -20,10 +22,10 @@ from base_camera import BaseCameraProcessor
 
 
 class OCRCameraProcessor(BaseCameraProcessor):
-    def __init__(self, cam_id, fps, frame_size: tuple, skip_frame: int,
-                 frame_queue: Queue, result_queue: deque, container_detected_event: Dict, 
+    def __init__(self, cam_id, cap: cv2.VideoCapture, skip_time: float,
+                 result_queue, container_detected_event: dict, 
                  config_inference_server: dict, config_model: dict):
-        super().__init__(cam_id, fps, frame_size, skip_frame, frame_queue, result_queue, container_detected_event)
+        super().__init__(cam_id, cap, skip_time, result_queue, container_detected_event)
         self._setup_logging()
 
         # setup models
