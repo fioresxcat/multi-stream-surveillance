@@ -464,3 +464,11 @@ class BYTETracker:
                 self.lost_stracks.remove(track)
                 self.removed_stracks.append(track)
                 break
+    
+
+    def remove_tracked_track_if_needed(self):
+        for track in self.tracked_stracks:
+            if self.frame_id - track.end_frame >= self.max_frame_lost:
+                track.mark_removed()
+                self.tracked_stracks.remove(track)
+                self.removed_stracks.append(track)

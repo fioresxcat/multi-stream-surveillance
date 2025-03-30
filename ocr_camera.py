@@ -61,6 +61,10 @@ class OCRCameraProcessor(BaseCameraProcessor):
             tracked_ids = []
             if len(boxes) > 0:
                 tracked_ids = self._process_detections(frame, timestamp, boxes, scores)
+            else:
+                self.tracker.frame_id += 1
+                self.tracker.remove_tracked_track_if_needed()
+
             # remove inactive tracks
             inactive_ids = [id for id in self.database.keys() if id not in tracked_ids]
             self._process_inactive_tracks(inactive_ids)
@@ -222,6 +226,8 @@ class OCRCameraProcessor(BaseCameraProcessor):
                 f'is_done: {container_info.is_done}, '
                 f'info: {container_info.info}'
             )
+        tracker_tracked_ids = [track.track_id for track in self.tracker.tracked_stracks]
+        self.logger.debug(f'Tracker tracked ids: {tracker_tracked_ids}')
         self.logger.debug('\n\n')
     
     
