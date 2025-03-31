@@ -222,6 +222,8 @@ class DefectCameraProcessor(BaseCameraProcessor):
                 f'info: {print_info}'
                 f'\n'
             )
+        tracker_tracked_ids = [track.track_id for track in self.tracker.tracked_stracks]
+        self.logger.debug(f'Tracker tracked ids: {tracker_tracked_ids}')
 
 
     def _is_frame_candidate(self, frame, timestamp, container_bbox, container_info: ContainerDefectInfo):
