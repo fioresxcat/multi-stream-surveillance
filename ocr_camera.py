@@ -12,6 +12,8 @@ from easydict import EasyDict
 import logging
 from multiprocessing import Process, Queue, Event, Manager
 import queue
+from pudb.remote import set_trace
+
 
 from modules.trackers import BYTETracker, BOTSORT
 from utils.utils import *
@@ -64,7 +66,6 @@ class OCRCameraProcessor(BaseCameraProcessor):
             else:
                 self.tracker.frame_id += 1
                 self.tracker.remove_tracked_track_if_needed()
-
             # remove inactive tracks
             inactive_ids = [id for id in self.database.keys() if id not in tracked_ids]
             self._process_inactive_tracks(inactive_ids)

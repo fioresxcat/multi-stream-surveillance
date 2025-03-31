@@ -25,7 +25,7 @@ config_model = load_yaml('configs/config_models.yaml')
 
 # setup logging
 log_dir = 'logs'
-setup_logging(log_dir, log_file='app.log', level=logging.DEBUG, enabled_cameras=['hps'])
+setup_logging(log_dir, log_file='app.log', level=logging.DEBUG, enabled_cameras=['htt'])
 logger = logging.getLogger('main')
 
 # some constants
@@ -158,6 +158,7 @@ class ContainerProcessor:
 
 
 def main():
+    multiprocessing.set_start_method("spawn", force=True)
     fps = 25
     video_sources = {
         'htt-ocr': 'test_files/hongtraitruoc-cut611.mp4',
@@ -177,7 +178,7 @@ def main():
         # 'bss-ocr'
     ]
     defect_cams = [
-        'hps-defect', 
+        # 'hps-defect', 
         # 'htt-defect', 
         # 'hts-defect',
     ]
