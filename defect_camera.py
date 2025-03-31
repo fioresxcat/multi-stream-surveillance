@@ -32,7 +32,6 @@ class DefectCameraProcessor(BaseCameraProcessor):
 
 
     def process(self):
-        self.is_running = True
         last_frame = None
         last_boxes, last_scores, last_cl_names = [], [], []
         is_different_from_last_frame = True
