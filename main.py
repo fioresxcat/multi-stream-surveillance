@@ -24,7 +24,7 @@ config_model = load_yaml('configs/config_models.yaml')
 
 # setup logging
 log_dir = 'logs'
-setup_logging(log_dir, log_file='app.log', level=logging.DEBUG, enabled_cameras=['hps'])
+setup_logging(log_dir, log_file='app.log', level=logging.DEBUG, enabled_cameras=['htt'])
 logger = logging.getLogger('main')
 
 # some constants
@@ -91,8 +91,10 @@ class ContainerProcessor:
         while self.is_running:
             for cam_id, cap in self.caps.items():
                 cam_queue: Queue = self.frame_queues[cam_id]
-                if CAMERA_MODE == 'video' and cam_queue.full():  # if mode is video, process all frames
-                    continue
+                # if CAMERA_MODE == 'video' and cam_queue.full():  # if mode is video, process all frames
+                #     continue
+                if cam_queue.full():
+                    cam_queue.get()  # remove the oldest frame if queue is full
                 if is_stopped[cam_id]:
                     frame = np.full((self.frame_sizes[cam_id][1], self.frame_sizes[cam_id][0], 3), 255, dtype=np.uint8)
                 else:
@@ -198,13 +200,14 @@ def main():
         'htt-ocr': 'test_files/hongtraitruoc-cut611.mp4',
         'hts-ocr': 'test_files/hongtraisau-cut611.mp4',
         'hps-defect': 'test_files/hongphaisau-cut611.mp4',
-        # 'htt-defect': 'test_files/hongtraitruoc-cut610_longer.mp4',
-        # 'hts-defect': 'test_files/hongtraisau-cut610_longer.mp4',
-        'nct_defect': 'test_files/noccongtruoc-cut611.mp4',
+        'nct-defect': 'test_files/noccongtruoc-cut611.mp4',
+        'htt-defect': 'test_files/hongtraitruoc-cut611.mp4',
+        'hts-defect': 'test_files/hongtraisau-cut611.mp4',
 
-        # 'hps-defect': 'test_files/hongphaisau-21032025-cut1.mp4',
-        # 'bst-ocr': 'test_files/biensotruoc-21032025-cut1.mp4',
-        # 'bss-ocr': 'test_files/biensosau-21032025-cut1.mp4',
+        # 'bst-ocr': 'test_files/biensotruoc-28032025-cut1.mp4',
+        # 'bss-ocr': 'test_files/biensosau-28032025-cut1.mp4',
+        # 'hps-defect': 'test_files/hongphaisau-28032025-cut1.mp4',
+        # 'nct-defect': 'test_files/noccongtruoc-28032025-cut1.mp4',
     }
     ocr_cams = [
         'htt-ocr', 
@@ -214,9 +217,9 @@ def main():
     ]
     defect_cams = [
         'hps-defect',
-        # 'htt-defect', 
-        # 'hts-defect',
-        'nct-defect'
+        'nct-defect',
+        'htt-defect',
+        'hts-defect',
     ]
     skip_frame = int(0.15*fps) # num frames
     processor = ContainerProcessor(video_sources, fps, skip_frame, ocr_cams, defect_cams)

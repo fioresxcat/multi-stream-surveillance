@@ -6,11 +6,12 @@ import pdb
 import threading
 from line_profiler import profile
 from queue import Queue
+import logging
 from typing_extensions import List, Dict, Tuple, Union, Any, Literal
 from collections import deque, OrderedDict
 from modules.trackers import BYTETracker, BOTSORT
 from easydict import EasyDict
-from utils.utils import sort_box_by_score, xyxy2xywh, compute_image_blurriness, clip_bbox
+from utils.utils import sort_box_by_score, xyxy2xywh, compute_image_blurriness, clip_bbox, clear_file
 from container_info import BaseContainerInfo, ContainerOCRInfo, ContainerDefectInfo
 
 
@@ -50,6 +51,7 @@ class BaseCameraProcessor:
         self.frame_cnt = 0
         self.is_running = False
 
+        self._setup_logging()
         # setup tracker
         self.max_time_lost = 1.5 # seconds
         self.max_frame_lost = int(self.max_time_lost * fps) / self.skip_frame
@@ -57,6 +59,15 @@ class BaseCameraProcessor:
         self.tracker.reset()
 
     
+    def _setup_logging(self):
+        self.logger = logging.getLogger(f'camera-{self.cam_id}')
+        self.logger.info(f"Initializing Defect Camera Processor for camera {self.cam_id}")
+        self.log_dir = os.path.join(logging.getLogger().log_dir, f'camera-{self.cam_id}')
+        os.makedirs(self.log_dir, exist_ok=True)
+        self.log_path = os.path.join(self.log_dir, 'log.log')
+        clear_file(self.log_path)
+
+
     def _get_next_frame(self):
         try:
             return self.frame_queue.get(block=True, timeout=0.1)

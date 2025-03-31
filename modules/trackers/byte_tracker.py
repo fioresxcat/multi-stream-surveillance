@@ -107,10 +107,10 @@ class STrack(BaseTrack):
                 stracks[i].mean = mean
                 stracks[i].covariance = cov
 
-    def activate(self, kalman_filter, frame_id):
+    def activate(self, kalman_filter, frame_id, new_id):
         """Start a new tracklet."""
         self.kalman_filter = kalman_filter
-        self.track_id = self.next_id()
+        self.track_id = new_id
         self.mean, self.covariance = self.kalman_filter.initiate(self.convert_coords(self._tlwh))
 
         self.tracklet_len = 0
@@ -122,7 +122,7 @@ class STrack(BaseTrack):
         self.start_frame = frame_id
 
 
-    def re_activate(self, new_track, frame_id, new_id=False):
+    def re_activate(self, new_track, frame_id, new_id=None):
         """Reactivates a previously lost track with a new detection."""
         self.mean, self.covariance = self.kalman_filter.update(
             self.mean, self.covariance, self.convert_coords(new_track.tlwh)
@@ -132,8 +132,8 @@ class STrack(BaseTrack):
         self.is_activated = True
         self.frame_id = frame_id
         # pdb.set_trace()
-        if new_id:
-            self.track_id = self.next_id()
+        if new_id is not None:
+            self.track_id = new_id
         self.score = new_track.score
         self.cls = new_track.cls
         self.angle = new_track.angle
@@ -267,6 +267,15 @@ class BYTETracker:
 
         self.logger = logging.getLogger('time')
 
+        self._count = 0
+
+    
+    def next_id(self):
+        """Increment and return the global track ID counter."""
+        self._count += 1
+        return self._count
+    
+
     def update(self, results, img=None):
         """Updates object tracker with new detections and returns tracked object bounding boxes."""
         self.frame_id += 1
@@ -321,7 +330,7 @@ class BYTETracker:
                 track.update(det, self.frame_id)
                 activated_stracks.append(track)
             else:
-                track.re_activate(det, self.frame_id, new_id=False)
+                track.re_activate(det, self.frame_id, new_id=None)
                 refind_stracks.append(track)
         # Step 3: Second association, with low score detection boxes association the untrack to the low score detections
         detections_second = self.init_track(dets_second, scores_second, cls_second, img)
@@ -336,7 +345,7 @@ class BYTETracker:
                 track.update(det, self.frame_id)
                 activated_stracks.append(track)
             else:
-                track.re_activate(det, self.frame_id, new_id=False)
+                track.re_activate(det, self.frame_id, new_id=None)
                 refind_stracks.append(track)
 
         for it in u_track:
@@ -360,7 +369,7 @@ class BYTETracker:
             track = detections[inew]
             if track.score < self.args.new_track_thresh:
                 continue
-            track.activate(self.kalman_filter, self.frame_id)
+            track.activate(self.kalman_filter, self.frame_id, new_id=self.next_id())
             activated_stracks.append(track)
         # Step 5: Update state
         for track in self.lost_stracks:

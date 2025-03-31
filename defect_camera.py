@@ -24,22 +24,16 @@ class DefectCameraProcessor(BaseCameraProcessor):
                  frame_queue: Queue, result_queue: deque, container_detected_event: Dict, 
                  depend_cameras: List[str], config_inference_server: dict, config_model: dict):
         super().__init__(cam_id, fps, frame_size, skip_frame, frame_queue, result_queue, container_detected_event)
-        self._setup_logging()
+        self.image_log_dir = os.path.join(self.log_dir, 'image_buffer')
+        os.makedirs(self.image_log_dir, exist_ok=True)
+        for fn in os.listdir(self.image_log_dir):
+            os.remove(os.path.join(self.image_log_dir, fn))
 
         self.depend_cameras = depend_cameras
 
         # setup models
         self.container_detector = ContainerDetector.get_instance(config_inference_server, config_model['container_detection'])
         self.defect_detector = DefectDetector.get_instance(config_inference_server, config_model['container_defect_detection'])
-
-
-    def _setup_logging(self):
-        self.logger = logging.getLogger(f'camera-{self.cam_id}')
-        self.logger.info(f"Initializing Defect Camera Processor for camera {self.cam_id}")
-        self.log_dir = os.path.join(logging.getLogger().log_dir, f'camera-{self.cam_id}')
-        os.makedirs(self.log_dir, exist_ok=True)
-        self.log_path = os.path.join(self.log_dir, 'log.log')
-        clear_file(self.log_path)
 
 
     def process(self):
@@ -125,8 +119,6 @@ class DefectCameraProcessor(BaseCameraProcessor):
     def _process_image_buffer(self, container_info: ContainerDefectInfo):
         images = [im for timestamp, im in container_info.image_buffer]
         results = self.defect_detector.predict(images)
-        log_dir = os.path.join(self.log_dir, 'image_buffer')
-        os.makedirs(log_dir, exist_ok=True)
         for i, (boxes, scores, names) in enumerate(results):
             timestamp, im = container_info.image_buffer[i]
             # logging
@@ -134,7 +126,7 @@ class DefectCameraProcessor(BaseCameraProcessor):
             for box, score, name in zip(boxes, scores, names):
                 cv2.rectangle(draw_im, (int(box[0]), int(box[1])), (int(box[2]), int(box[3])), (255, 0, 0), 2)
                 cv2.putText(draw_im, f'{name}-{score:.2f}', (int(box[0]), int(box[1] - 5)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
-            cv2.imwrite(os.path.join(log_dir, f'container_{container_info.id}-{timestamp}.jpg'), draw_im)
+            cv2.imwrite(os.path.join(self.image_log_dir, f'container_{container_info.id}-{timestamp}.jpg'), draw_im)
 
             if 'trailer' not in names or set(names) == {'trailer'}:
                 continue

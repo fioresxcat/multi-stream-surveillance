@@ -24,7 +24,6 @@ class OCRCameraProcessor(BaseCameraProcessor):
                  frame_queue: Queue, result_queue: deque, container_detected_event: Dict, 
                  config_inference_server: dict, config_model: dict):
         super().__init__(cam_id, fps, frame_size, skip_frame, frame_queue, result_queue, container_detected_event)
-        self._setup_logging()
 
         # setup models
         self.container_detector = ContainerDetector.get_instance(config_inference_server, config_model['container_detection'])
@@ -35,15 +34,6 @@ class OCRCameraProcessor(BaseCameraProcessor):
 
         self.blur_threshold = 1  # threshold to check for blurriness when extract info
         self.min_appearance_to_count_as_detected = 0.5  # seconds
-
-
-    def _setup_logging(self):
-        self.logger = logging.getLogger(f'camera-{self.cam_id}')
-        self.logger.info(f"Initializing OCR Camera Processor for camera {self.cam_id}")
-        self.log_dir = os.path.join(logging.getLogger().log_dir, f'camera-{self.cam_id}')
-        os.makedirs(self.log_dir, exist_ok=True)
-        self.log_path = os.path.join(self.log_dir, 'log.log')
-        clear_file(self.log_path)
 
 
     def process(self):
@@ -229,15 +219,15 @@ class OCRCameraProcessor(BaseCameraProcessor):
         """
         self.logger.debug(f'------- FRAME {self.frame_cnt} - TIME {timestamp} - {self.cam_id.upper()} DATABASE -------')
         self.logger.debug(f'Find {len(boxes)} boxes in this frame')
-        # for container_id, container_info in self.database.items():
-        #     self.logger.debug(
-        #         f'CONTAINER {container_id}: appear: {container_info.num_appear}, '
-        #         f'moving_direction: {container_info.moving_direction}, '
-        #         f'camera_direction: {container_info.camera_direction}, '
-        #         f'is_valid: {container_info.is_valid_container}, '
-        #         f'is_done: {container_info.is_done}, '
-        #         f'info: {container_info.info}'
-        #     )
+        for container_id, container_info in self.database.items():
+            self.logger.debug(
+                f'CONTAINER {container_id}: appear: {container_info.num_appear}, '
+                f'moving_direction: {container_info.moving_direction}, '
+                f'camera_direction: {container_info.camera_direction}, '
+                f'is_valid: {container_info.is_valid_container}, '
+                f'is_done: {container_info.is_done}, '
+                f'info: {container_info.info}'
+            )
         tracker_tracked_ids = [track.track_id for track in self.tracker.tracked_stracks]
         self.logger.debug(f'Tracker tracked ids: {tracker_tracked_ids}')
         self.logger.debug('\n\n')
