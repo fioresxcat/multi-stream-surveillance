@@ -50,12 +50,11 @@ class DefectCameraProcessor(BaseCameraProcessor):
         while self.is_running:
             if (not self.is_having_container() or self.frame_queue.empty()) and len(self.database) == 0:
                 time.sleep(0.05)
-                self.logger.debug('skipping 1')
+                self.logger.debug('skipping mostly due to no container detected')
                 continue
 
             frame_info = self._get_next_frame()
             if not frame_info:
-                self.logger.debug('skipping 2')
                 continue
 
             self.frame_cnt += 1
@@ -76,6 +75,10 @@ class DefectCameraProcessor(BaseCameraProcessor):
             tracked_ids = []
             if len(boxes) > 0:
                 tracked_ids = self._process_detections(frame, is_different_from_last_frame, timestamp, boxes, scores)
+            else:
+                self.tracker.frame_id += 1
+                self.tracker.remove_tracked_track_if_needed()
+
             # process inactive tracks
             inactive_ids = [id for id in self.database.keys() if id not in tracked_ids]
             self._process_inactive_tracks(inactive_ids)
@@ -229,6 +232,9 @@ class DefectCameraProcessor(BaseCameraProcessor):
                 f'info: {print_info}'
                 f'\n'
             )
+        tracker_tracked_ids = [track.track_id for track in self.tracker.tracked_stracks]
+        self.logger.debug(f'Tracker tracked ids: {tracker_tracked_ids}')
+        self.logger.debug('\n\n')
 
 
     def _is_frame_candidate(self, frame, timestamp, container_bbox, container_info: ContainerDefectInfo):

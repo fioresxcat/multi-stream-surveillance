@@ -197,9 +197,10 @@ def main():
     video_sources = {
         'htt-ocr': 'test_files/hongtraitruoc-cut611.mp4',
         'hts-ocr': 'test_files/hongtraisau-cut611.mp4',
-        'hps-defect': 'test_files/hongphaisau-cut610_longer.mp4',
+        'hps-defect': 'test_files/hongphaisau-cut611.mp4',
         # 'htt-defect': 'test_files/hongtraitruoc-cut610_longer.mp4',
         # 'hts-defect': 'test_files/hongtraisau-cut610_longer.mp4',
+        'nct_defect': 'test_files/noccongtruoc-cut611.mp4',
 
         # 'hps-defect': 'test_files/hongphaisau-21032025-cut1.mp4',
         # 'bst-ocr': 'test_files/biensotruoc-21032025-cut1.mp4',
@@ -212,9 +213,10 @@ def main():
         # 'bss-ocr'
     ]
     defect_cams = [
-        'hps-defect', 
+        'hps-defect',
         # 'htt-defect', 
         # 'hts-defect',
+        'nct-defect'
     ]
     skip_frame = int(0.15*fps) # num frames
     processor = ContainerProcessor(video_sources, fps, skip_frame, ocr_cams, defect_cams)
